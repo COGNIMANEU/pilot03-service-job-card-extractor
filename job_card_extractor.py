@@ -54,7 +54,7 @@ def display_version():
     print(f"Job Card Extractor v{__version__}")
     print("(c) 2025 Montimage")
     print("For more information, see the documentation at:")
-    print("https://github.com/montimage/job-card-extractor")
+    print("https://github.com/COGNIMANEU/pilot03-service-job-card-extractor")
 
 #############################################
 # Barcode and OCR Extraction Functions
@@ -524,7 +524,7 @@ def main():
     )
     parser.add_argument(
         "pdf_files",
-        nargs='+',
+        nargs='*',  # Changed from '+' to '*' to allow empty list
         help="Path to the PDF file(s) to process"
     )
     parser.add_argument(
@@ -557,6 +557,12 @@ def main():
     if args.version:
         display_version()
         sys.exit(0)
+
+    # Ensure pdf_files is provided if not showing version
+    if not args.pdf_files:
+        parser.print_help()
+        print("\nError: At least one PDF file is required unless using --version.")
+        sys.exit(1)
 
     for pdf_file in args.pdf_files:
         print(f"\nProcessing {pdf_file}...")
