@@ -1,0 +1,12 @@
+# Core dependencies
+numpy>=1.19.0
+opencv-python>=4.5.0
+Pillow>=8.0.0
+pdf2image>=1.16.0
+pyzbar>=0.1.8
+easyocr>=1.4.1
+argparse
+
+# EasyOCR dependencies
+torch>=1.7.0
+torchvision>=0.8.0
