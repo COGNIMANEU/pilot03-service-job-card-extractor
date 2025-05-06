@@ -20,6 +20,7 @@ import argparse
 import sys
 from pathlib import Path
 from pdf2image import convert_from_path
+import easyocr
 from PIL import Image
 import warnings
 from pyzbar.pyzbar import decode
