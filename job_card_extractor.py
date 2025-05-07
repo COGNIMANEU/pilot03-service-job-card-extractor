@@ -271,6 +271,98 @@ def extract_job_number(json_data):
     # If no barcode found, return empty string
     return ''
 
+def extract_job_details(json_data):
+    """
+    Extract job details including job number, quantity and delivery date from the JSON data.
+
+    The job information is typically in the first areas of the first page,
+    with OCR text containing strings like "Job No", "Quantity", and "Delivery Date".
+
+    Args:
+        json_data (list): List of area dictionaries from the JSON file
+
+    Returns:
+        dict: A dictionary containing job_number, quantity, and delivery_date
+    """
+    # Initialize result dictionary
+    job_details = {
+        "job_number": "",
+        "quantity": "",
+        "delivery_date": ""
+    }
+
+    # Sort areas by page and area_index to ensure proper ordering
+    sorted_areas = sorted(json_data, key=lambda x: (x.get('page', 0), x.get('area_index', 0)))
+
+    # Get first page areas
+    first_page_areas = [area for area in sorted_areas if area.get('page', 0) == 1]
+    if not first_page_areas:
+        return job_details
+
+    # First, extract job number
+    for area in first_page_areas:
+        ocr_text = area.get('ocr_text', '').strip()
+        if 'Job No' in ocr_text and 'barcodes' in area and area['barcodes']:
+            job_details["job_number"] = area['barcodes'][0].get('barcode', '')
+            break
+
+    # If job number wasn't found, look for the first barcode on page 1
+    if not job_details["job_number"]:
+        for area in first_page_areas:
+            if 'barcodes' in area and area['barcodes']:
+                job_details["job_number"] = area['barcodes'][0].get('barcode', '')
+                break
+
+    # Now check for quantity and delivery date in all header areas (before first operation)
+    # Find the index of the first operation area
+    first_op_index = -1
+    for i, area in enumerate(first_page_areas):
+        ocr_text = area.get('ocr_text', '').strip().lower()
+        if ('operation' in ocr_text and any(str(i) in ocr_text for i in range(10))) or 'scan barcodes to start job operation' in ocr_text:
+            first_op_index = i
+            break
+
+    # If we found operations, only search areas before that
+    header_areas = first_page_areas[:first_op_index] if first_op_index > 0 else first_page_areas
+
+    # Check all header areas for quantity
+    quantity_patterns = [
+        r'(?:Quantity|QTY|Qty)[:\s]+(\d+\.?\d*)',  # Match "Quantity: 123" or "QTY 123"
+        r'(?:Quantity|QTY|Qty)\s*[-:]\s*(\d+\.?\d*)',  # Match "Quantity - 123" or "QTY-123"
+        r'Qty\s*of\s*traceable\s*items:?\s*(\d+\.?\d*)',  # Match "Qty of traceable items: 10.00"
+    ]
+
+    for area in header_areas:
+        ocr_text = area.get('ocr_text', '').strip()
+        for pattern in quantity_patterns:
+            quantity_match = re.search(pattern, ocr_text)
+            if quantity_match:
+                job_details["quantity"] = quantity_match.group(1)
+                break
+        if job_details["quantity"]:
+            break
+
+    # Check all header areas for delivery date
+    date_patterns = [
+        r'(?:Delivery\s*Date|Del[.\s]*Date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',  # DD/MM/YYYY format
+        r'(?:Delivery\s*Date|Del[.\s]*Date)[:\s]+(\d{1,2}[-]\d{1,2}[-]\d{4})',  # DD-MM-YYYY format
+        r'(?:Delivery\s*Date|Del[.\s]*Date)[:\s]+(\d{1,2}-[A-Za-z]+-\d{4})',  # DD-Month-YYYY format
+        r'(?:Date\s*Required|Due\s*Date)[:\s]+(\d{1,2}-[A-Za-z]+-\d{4})',  # Date Required format
+        r'(?:Date\s*Required|Due\s*Date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',  # Date Required DD/MM/YYYY
+    ]
+
+    for area in header_areas:
+        ocr_text = area.get('ocr_text', '').strip()
+        for pattern in date_patterns:
+            date_match = re.search(pattern, ocr_text, re.IGNORECASE)
+            if date_match:
+                job_details["delivery_date"] = date_match.group(1)
+                break
+        if job_details["delivery_date"]:
+            break
+
+    return job_details
+
 def clean_operation_name(op_name):
     """
     Clean up operation name by removing scan barcode instructions and other noise.
@@ -431,23 +523,25 @@ def extract_operations(json_data):
 
 def extract_job_and_operations(json_data):
     """
-    Extract both job number and operations from the JSON data in a single call.
+    Extract both job details and operations from the JSON data in a single call.
 
     Args:
         json_data (list): List of area dictionaries from the JSON file
 
     Returns:
-        dict: A dictionary containing the job number and a list of operations
+        dict: A dictionary containing job details (job number, quantity, delivery date) and a list of operations
     """
-    # Extract job number
-    job_number = extract_job_number(json_data)
+    # Extract job details
+    job_details = extract_job_details(json_data)
 
     # Extract operations
     operations = extract_operations(json_data)
 
     # Return combined result
     return {
-        "job_number": job_number,
+        "job_number": job_details["job_number"],
+        "quantity": job_details["quantity"],
+        "delivery_date": job_details["delivery_date"],
         "operations": operations
     }
 
