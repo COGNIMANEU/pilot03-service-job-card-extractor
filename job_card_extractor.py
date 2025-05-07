@@ -9,7 +9,7 @@ It combines functionality from extract_operations_ocr.py and filter_j_barcodes.p
 into a single workflow.
 """
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 import os
 import cv2

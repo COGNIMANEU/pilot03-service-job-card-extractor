@@ -11,7 +11,7 @@ The Job Card Extractor is designed to automate the extraction of critical inform
 1. Processing PDF documents containing job information
 2. Detecting and reading barcodes (particularly those starting with "J")
 3. Performing OCR (Optical Character Recognition) on text regions
-4. Identifying job numbers and operations
+4. Identifying job numbers, quantities, delivery dates, and operations
 5. Generating structured JSON data from the extracted information
 
 The tool provides both command-line interface and programmatic access, with options to save processing artifacts such as annotated images and intermediate data.
@@ -23,6 +23,7 @@ The tool provides both command-line interface and programmatic access, with opti
 - **OCR Text Extraction**: Extract text from document areas with preprocessing for improved accuracy
 - **Smart Information Extraction**:
   - Extract job numbers from header areas
+  - Extract quantities and delivery dates from document headers
   - Recognize operations with their numbers, names, and associated barcodes
 - **Visual Debugging**: Generate annotated images showing detected areas, barcodes, and text
 - **Flexible Output Options**: Save results as clean JSON and/or raw extraction data
@@ -121,6 +122,8 @@ output_dir/
 ```json
 {
   "job_number": "J123456",
+  "quantity": "100",
+  "delivery_date": "15/06/2025",
   "operations": [
     {
       "op_number": "10",
@@ -175,6 +178,8 @@ result = process_pdf_document(
 
 # Access extracted data
 job_number = result['job_number']
+quantity = result['quantity']
+delivery_date = result['delivery_date']
 operations = result['operations']
 
 # Process operations
@@ -190,6 +195,8 @@ for op in operations:
 4. **OCR Processing**: Text is extracted from each area using EasyOCR
 5. **Information Extraction**:
    - Job numbers are identified, typically from the first page header
+   - Quantities are extracted from patterns like "Quantity: 100" or "QTY: 250"
+   - Delivery dates are extracted from patterns like "Delivery Date: 15/06/2025" or "Date Required: 10-May-2025"
    - Operations are extracted by identifying patterns like "Operation XX Name"
 6. **Result Generation**: Data is compiled into a structured JSON format
 

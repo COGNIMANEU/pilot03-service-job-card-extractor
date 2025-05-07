@@ -139,6 +139,86 @@ class TestJobExtractionFunctions(unittest.TestCase):
         self.assertEqual(result[2]['op_name'], 'WELDING')
         self.assertEqual(result[2]['op_id'], '')  # No barcode for this operation
 
+    def test_extract_job_details(self):
+        """Test the job details extraction function with various inputs"""
+        # Test case 1: Job details with all information present
+        test_data_1 = [
+            {
+                'page': 1,
+                'area_index': 0,
+                'ocr_text': 'Job No: 12345',
+                'barcodes': [{'barcode': 'J12345'}, {'barcode': 'J67890'}]
+            },
+            {
+                'page': 1,
+                'area_index': 1,
+                'ocr_text': 'Quantity: 500',
+                'barcodes': []
+            },
+            {
+                'page': 1,
+                'area_index': 2,
+                'ocr_text': 'Delivery Date: 15/06/2025',
+                'barcodes': []
+            },
+            {
+                'page': 1,
+                'area_index': 3,
+                'ocr_text': 'Operation 10 CUTTING',
+                'barcodes': [{'barcode': 'J12345Q10'}]
+            }
+        ]
+        result_1 = job_card_extractor.extract_job_details(test_data_1)
+        self.assertEqual(result_1['job_number'], 'J12345')
+        self.assertEqual(result_1['quantity'], '500')
+        self.assertEqual(result_1['delivery_date'], '15/06/2025')
+
+        # Test case 2: Job details with alternate format
+        test_data_2 = [
+            {
+                'page': 1,
+                'area_index': 0,
+                'ocr_text': 'Some text',
+                'barcodes': [{'barcode': 'J54321'}]
+            },
+            {
+                'page': 1,
+                'area_index': 1,
+                'ocr_text': 'QTY: 250.00',
+                'barcodes': []
+            },
+            {
+                'page': 1,
+                'area_index': 2,
+                'ocr_text': 'Date Required: 10-May-2025',
+                'barcodes': []
+            }
+        ]
+        result_2 = job_card_extractor.extract_job_details(test_data_2)
+        self.assertEqual(result_2['job_number'], 'J54321')
+        self.assertEqual(result_2['quantity'], '250.00')
+        self.assertEqual(result_2['delivery_date'], '10-May-2025')
+
+        # Test case 3: Missing quantity and delivery date
+        test_data_3 = [
+            {
+                'page': 1,
+                'area_index': 0,
+                'ocr_text': 'Job No: 12345',
+                'barcodes': [{'barcode': 'J98765'}]
+            }
+        ]
+        result_3 = job_card_extractor.extract_job_details(test_data_3)
+        self.assertEqual(result_3['job_number'], 'J98765')
+        self.assertEqual(result_3['quantity'], '')
+        self.assertEqual(result_3['delivery_date'], '')
+
+        # Test case 4: Empty data
+        result_4 = job_card_extractor.extract_job_details([])
+        self.assertEqual(result_4['job_number'], '')
+        self.assertEqual(result_4['quantity'], '')
+        self.assertEqual(result_4['delivery_date'], '')
+
     def test_extract_job_and_operations(self):
         """Test the combined job and operations extraction function"""
         # Simple test data
@@ -152,6 +232,12 @@ class TestJobExtractionFunctions(unittest.TestCase):
             {
                 'page': 1,
                 'area_index': 1,
+                'ocr_text': 'Quantity: 100\nDelivery Date: 30/06/2025',
+                'barcodes': []
+            },
+            {
+                'page': 1,
+                'area_index': 2,
                 'ocr_text': 'Operation 10 CUTTING',
                 'barcodes': [{'barcode': 'J12345Q10'}]
             }
@@ -163,9 +249,13 @@ class TestJobExtractionFunctions(unittest.TestCase):
         # Verify results
         self.assertIsInstance(result, dict)
         self.assertIn('job_number', result)
+        self.assertIn('quantity', result)
+        self.assertIn('delivery_date', result)
         self.assertIn('operations', result)
 
         self.assertEqual(result['job_number'], 'J12345')
+        self.assertEqual(result['quantity'], '100')
+        self.assertEqual(result['delivery_date'], '30/06/2025')
         self.assertEqual(len(result['operations']), 1)
         self.assertEqual(result['operations'][0]['op_number'], '10')
         self.assertEqual(result['operations'][0]['op_name'], 'CUTTING')
@@ -173,6 +263,8 @@ class TestJobExtractionFunctions(unittest.TestCase):
         # Test with empty data
         empty_result = job_card_extractor.extract_job_and_operations([])
         self.assertEqual(empty_result['job_number'], '')
+        self.assertEqual(empty_result['quantity'], '')
+        self.assertEqual(empty_result['delivery_date'], '')
         self.assertEqual(len(empty_result['operations']), 0)
 
 if __name__ == '__main__':
