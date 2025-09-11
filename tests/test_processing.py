@@ -13,10 +13,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import job_card_extractor
 
 class TestProcessingFunctions(unittest.TestCase):
+    @patch('os.path.exists')
     @patch('job_card_extractor.extract_areas_from_pdf')
     @patch('job_card_extractor.extract_job_and_operations')
-    def test_process_pdf_document(self, mock_extract_job, mock_extract_areas):
+    def test_process_pdf_document(self, mock_extract_job, mock_extract_areas, mock_exists):
         """Test the main PDF processing function"""
+        # Mock file existence check
+        mock_exists.return_value = True
+        
         # Mock the extraction functions
         mock_areas_result = ([{'page': 1, 'ocr_text': 'test'}], [MagicMock()])
         mock_extract_areas.return_value = mock_areas_result
@@ -31,13 +35,15 @@ class TestProcessingFunctions(unittest.TestCase):
                  patch('os.makedirs') as mock_makedirs, \
                  patch('json.dump') as mock_json_dump:
 
-                # Call the function
+                # Call the function with enhanced parameters
                 result = job_card_extractor.process_pdf_document(
                     'test.pdf',
                     output_dir=temp_dir,
                     lang_list=['en'],
                     save_raw=True,
-                    save_annotated=True
+                    save_annotated=True,
+                    parallel_processing=False,
+                    enhance_quality=True
                 )
 
                 # Verify results
@@ -52,11 +58,13 @@ class TestProcessingFunctions(unittest.TestCase):
                 # Verify JSON dumps
                 self.assertEqual(mock_json_dump.call_count, 2)
 
-                # Verify first call to extract_areas_from_pdf
+                # Verify first call to extract_areas_from_pdf with enhanced parameters
                 mock_extract_areas.assert_called_with(
                     'test.pdf',
                     lang_list=['en'],
-                    output_dir=os.path.join(temp_dir, "annotated")
+                    output_dir=os.path.join(temp_dir, "annotated"),
+                    parallel_processing=False,
+                    enhance_quality=True
                 )
 
         # Test without output directory - with fresh mocks
@@ -145,6 +153,8 @@ class TestProcessingFunctions(unittest.TestCase):
             mock_args.lang = ['en']
             mock_args.no_raw = False
             mock_args.no_annotated = True
+            mock_args.no_parallel = False
+            mock_args.fast_mode = False
             mock_args.version = False
             mock_parse_args.return_value = mock_args
 
@@ -156,14 +166,16 @@ class TestProcessingFunctions(unittest.TestCase):
 
             # Verify process_pdf_document was called for each PDF file
             self.assertEqual(mock_process.call_count, 2)
-
-            # Verify calls with correct arguments
+            
+            # Verify calls with correct arguments including new parameters
             mock_process.assert_any_call(
                 'test1.pdf',
                 output_dir='output',
                 lang_list=['en'],
                 save_raw=True,
-                save_annotated=False
+                save_annotated=False,
+                parallel_processing=True,
+                enhance_quality=True
             )
 
             mock_process.assert_any_call(
@@ -171,7 +183,9 @@ class TestProcessingFunctions(unittest.TestCase):
                 output_dir='output',
                 lang_list=['en'],
                 save_raw=True,
-                save_annotated=False
+                save_annotated=False,
+                parallel_processing=True,
+                enhance_quality=True
             )
 
     @patch('os.path.exists')

@@ -24,6 +24,11 @@ import easyocr
 from PIL import Image
 import warnings
 from pyzbar.pyzbar import decode
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import hashlib
+from functools import lru_cache
+import time
+from typing import List, Dict, Tuple, Optional
 
 # Suppress PyTorch pin_memory warning on MPS devices
 warnings.filterwarnings(
@@ -89,43 +94,185 @@ def detect_horizontal_lines(img_cv):
     # Remove duplicates and sort
     return sorted(list(set(lines_y)))
 
-def detect_barcodes(img_crop):
-    """Detect barcodes in the image crop."""
-    barcodes = decode(Image.fromarray(img_crop))
+def detect_barcodes(img_crop, enhance_detection=True):
+    """Enhanced barcode detection with multiple preprocessing strategies."""
+    if img_crop is None or img_crop.size == 0:
+        return [], []
+        
     result = []
-    for barcode in barcodes:
-        decoded_data = barcode.data.decode('utf-8', errors='replace')
-        result.append({
-            'type': barcode.type,
-            'barcode': clean_barcode_value(decoded_data),
-            'rect': list(barcode.rect)
-        })
-    return result, barcodes
+    all_barcodes = []
+    
+    # Convert to PIL Image if needed
+    if isinstance(img_crop, np.ndarray):
+        pil_image = Image.fromarray(img_crop)
+    else:
+        pil_image = img_crop
+    
+    # Strategy 1: Direct detection on original image
+    barcodes = decode(pil_image)
+    all_barcodes.extend(barcodes)
+    
+    if enhance_detection and len(barcodes) == 0:
+        # Strategy 2: Try with grayscale conversion
+        if len(img_crop.shape) == 3:
+            gray = cv2.cvtColor(img_crop, cv2.COLOR_BGR2GRAY)
+            barcodes_gray = decode(Image.fromarray(gray))
+            all_barcodes.extend(barcodes_gray)
+        
+        # Strategy 3: Try with enhanced contrast
+        try:
+            if len(img_crop.shape) == 3:
+                gray = cv2.cvtColor(img_crop, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = img_crop.copy()
+                
+            # Apply CLAHE for better contrast
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+            enhanced = clahe.apply(gray)
+            
+            # Try different thresholding methods
+            for thresh_type in [cv2.THRESH_BINARY, cv2.THRESH_BINARY_INV]:
+                _, binary = cv2.threshold(enhanced, 0, 255, thresh_type + cv2.THRESH_OTSU)
+                barcodes_thresh = decode(Image.fromarray(binary))
+                all_barcodes.extend(barcodes_thresh)
+                
+        except Exception as e:
+            print(f"Warning: Error in enhanced barcode detection: {e}")
+    
+    # Remove duplicates and process results
+    seen_barcodes = set()
+    for barcode in all_barcodes:
+        try:
+            decoded_data = barcode.data.decode('utf-8', errors='replace')
+            cleaned_barcode = clean_barcode_value(decoded_data)
+            
+            # Avoid duplicates
+            if cleaned_barcode not in seen_barcodes and cleaned_barcode:
+                seen_barcodes.add(cleaned_barcode)
+                result.append({
+                    'type': barcode.type,
+                    'barcode': cleaned_barcode,
+                    'rect': list(barcode.rect),
+                    'confidence': getattr(barcode, 'quality', 100)  # Some barcode libraries provide quality
+                })
+        except Exception as e:
+            print(f"Warning: Error processing barcode: {e}")
+            continue
+    
+    return result, all_barcodes
 
-def preprocess_image_for_ocr(crop):
-    """Preprocess image for better OCR results."""
-    # 1. Denoise
-    crop = cv2.medianBlur(crop, 3)
-    # 2. Sharpen
-    kernel_sharpen = np.array([[0, -1, 0], [-1, 5,-1], [0, -1, 0]])
-    crop = cv2.filter2D(crop, -1, kernel_sharpen)
-    # 3. Convert to grayscale
-    crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    # 4. Adaptive thresholding
-    crop_bin = cv2.adaptiveThreshold(crop_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 15)
-    # 5. Upscale if too small
-    min_height = 600
-    if crop_bin.shape[0] < min_height:
-        scale = min_height / crop_bin.shape[0]
-        crop_bin = cv2.resize(crop_bin, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-    # 6. Convert back to 3 channels for EasyOCR
-    return cv2.cvtColor(crop_bin, cv2.COLOR_GRAY2RGB)
+def preprocess_image_for_ocr(crop, enhance_quality=True):
+    """Enhanced preprocessing for better OCR results with multiple quality levels."""
+    if crop is None or crop.size == 0:
+        return None
+        
+    try:
+        # 1. Enhanced denoising with bilateral filter for better edge preservation
+        crop_denoised = cv2.bilateralFilter(crop, 9, 75, 75)
+        
+        # 2. Convert to grayscale early for better processing
+        if len(crop_denoised.shape) == 3:
+            crop_gray = cv2.cvtColor(crop_denoised, cv2.COLOR_BGR2GRAY)
+        else:
+            crop_gray = crop_denoised.copy()
+        
+        # 3. Contrast enhancement using CLAHE
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        crop_enhanced = clahe.apply(crop_gray)
+        
+        if enhance_quality:
+            # 4. Advanced sharpening with unsharp mask
+            gaussian = cv2.GaussianBlur(crop_enhanced, (0, 0), 2.0)
+            crop_sharpened = cv2.addWeighted(crop_enhanced, 1.5, gaussian, -0.5, 0)
+            
+            # 5. Morphological operations to clean up text
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
+            crop_morph = cv2.morphologyEx(crop_sharpened, cv2.MORPH_CLOSE, kernel)
+        else:
+            crop_morph = crop_enhanced
+        
+        # 6. Adaptive thresholding with optimized parameters
+        crop_bin = cv2.adaptiveThreshold(
+            crop_morph, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 15, 10
+        )
+        
+        # 7. Intelligent upscaling based on text density
+        min_height = 400 if enhance_quality else 300
+        if crop_bin.shape[0] < min_height:
+            scale = min_height / crop_bin.shape[0]
+            # Use INTER_LANCZOS4 for better text quality
+            crop_bin = cv2.resize(
+                crop_bin, None, fx=scale, fy=scale, 
+                interpolation=cv2.INTER_LANCZOS4
+            )
+        
+        # 8. Convert back to 3 channels for EasyOCR
+        return cv2.cvtColor(crop_bin, cv2.COLOR_GRAY2RGB)
+        
+    except Exception as e:
+        print(f"Warning: Error in image preprocessing: {e}")
+        # Fallback to basic processing
+        if len(crop.shape) == 3:
+            crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        else:
+            crop_gray = crop.copy()
+        return cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2RGB)
 
-def perform_ocr(reader, image):
-    """Perform OCR on the image."""
-    ocr_result = reader.readtext(image, detail=0, paragraph=True)
-    # Clean up text
-    return "\n".join([line.strip().replace('_', ' ') for line in ocr_result if line.strip()])
+@lru_cache(maxsize=128)
+def _cached_ocr_hash(image_hash: str, reader_id: str) -> str:
+    """Cache OCR results based on image hash."""
+    return f"{image_hash}_{reader_id}"
+
+# Global cache for OCR results
+_ocr_cache = {}
+
+def perform_ocr(reader, image, use_cache=True):
+    """Enhanced OCR with caching and confidence scoring."""
+    if image is None:
+        return ""
+        
+    try:
+        # Generate hash for caching
+        if use_cache:
+            image_bytes = cv2.imencode('.jpg', image)[1].tobytes()
+            image_hash = hashlib.md5(image_bytes).hexdigest()
+            reader_id = str(id(reader))  # Simple reader identification
+            cache_key = f"{image_hash}_{reader_id}"
+            
+            if cache_key in _ocr_cache:
+                return _ocr_cache[cache_key]
+        
+        # Perform OCR with detailed results for confidence scoring
+        ocr_result = reader.readtext(image, detail=True, paragraph=False)
+        
+        # Filter results by confidence and clean text
+        filtered_lines = []
+        for (bbox, text, confidence) in ocr_result:
+            # Only include text with reasonable confidence (>0.3)
+            if confidence > 0.3 and text.strip():
+                cleaned_text = text.strip().replace('_', ' ')
+                # Remove obvious OCR artifacts
+                if len(cleaned_text) > 1 or cleaned_text.isalnum():
+                    filtered_lines.append(cleaned_text)
+        
+        result = "\n".join(filtered_lines)
+        
+        # Cache the result
+        if use_cache:
+            _ocr_cache[cache_key] = result
+            # Limit cache size
+            if len(_ocr_cache) > 200:
+                # Remove oldest entries (simple FIFO)
+                oldest_keys = list(_ocr_cache.keys())[:50]
+                for key in oldest_keys:
+                    del _ocr_cache[key]
+        
+        return result
+        
+    except Exception as e:
+        print(f"Warning: Error in OCR processing: {e}")
+        return ""
 
 def create_debug_image(img_cv, lines_y, barcode_annots, ocr_annots):
     """Create a debug image with visual annotations."""
@@ -149,85 +296,157 @@ def create_debug_image(img_cv, lines_y, barcode_annots, ocr_annots):
 
     return debug_img
 
-def process_page(page_num, img, reader):
-    """Process a single page of the PDF."""
-    img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-    lines_y = detect_horizontal_lines(img_cv)
-    print(f"Page {page_num+1}: Detected horizontal lines at y = {lines_y}")
+def process_page(page_num, img, reader, create_debug=True, enhance_quality=True):
+    """Optimized page processing with reduced redundancy."""
+    start_time = time.time()
+    
+    try:
+        img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        lines_y = detect_horizontal_lines(img_cv)
+        print(f"Page {page_num+1}: Detected {len(lines_y)-2} areas between horizontal lines")
 
-    # For debug visualization
-    barcode_annots = []
-    ocr_annots = []
-    areas = []
+        # For debug visualization (only if needed)
+        barcode_annots = [] if create_debug else None
+        ocr_annots = [] if create_debug else None
+        areas = []
 
-    # Process each area between lines
-    for i in range(len(lines_y) - 1):
-        y1, y2 = lines_y[i], lines_y[i + 1]
-        if y2 - y1 < 50:
-            continue
+        # Process each area between lines
+        for i in range(len(lines_y) - 1):
+            y1, y2 = lines_y[i], lines_y[i + 1]
+            if y2 - y1 < 50:  # Skip areas that are too small
+                continue
 
-        crop = img_cv[y1:y2, :]
+            crop = img_cv[y1:y2, :]
+            if crop.size == 0:
+                continue
 
-        # For debug visualization
-        crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        crop_bin = cv2.adaptiveThreshold(crop_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 15)
-        crop_bin_rgb = cv2.cvtColor(crop_bin, cv2.COLOR_GRAY2RGB)
-        ocr_preview = easyocr.Reader(['en']).readtext(crop_bin_rgb, detail=0, paragraph=True)
-        ocr_text = " ".join([line.strip().replace('_', ' ') for line in ocr_preview if line.strip()])
-        ocr_annots.append((y1, ocr_text))
+            # Enhanced barcode detection
+            barcodes_data, raw_barcodes = detect_barcodes(crop, enhance_detection=enhance_quality)
+            
+            # Collect barcode annotations for debug (only if needed)
+            if create_debug and barcode_annots is not None:
+                for barcode in raw_barcodes:
+                    try:
+                        x, y, w, h = barcode.rect
+                        abs_rect = (x, y1 + y, w, h)
+                        decoded_data = barcode.data.decode('utf-8', errors='replace')
+                        barcode_annots.append((abs_rect, clean_barcode_value(decoded_data)))
+                    except Exception as e:
+                        print(f"Warning: Error processing barcode annotation: {e}")
 
-        # For barcode detection
-        barcodes_data, raw_barcodes = detect_barcodes(crop)
-        for barcode in raw_barcodes:
-            x, y, w, h = barcode.rect
-            # Adjust barcode rect to page coordinates
-            abs_rect = (x, y1 + y, w, h)
-            barcode_annots.append((abs_rect, clean_barcode_value(barcode.data.decode('utf-8', errors='replace'))))
+            # Enhanced OCR processing (single pass)
+            crop_for_ocr = preprocess_image_for_ocr(crop, enhance_quality=enhance_quality)
+            if crop_for_ocr is not None:
+                ocr_text = perform_ocr(reader, crop_for_ocr, use_cache=True)
+            else:
+                ocr_text = ""
 
-        # Process for actual extraction
-        crop_for_ocr = preprocess_image_for_ocr(crop)
-        ocr_text = perform_ocr(reader, crop_for_ocr)
+            # For debug annotations (simplified preview)
+            if create_debug and ocr_annots is not None:
+                preview_text = ocr_text[:80] + "..." if len(ocr_text) > 80 else ocr_text
+                ocr_annots.append((y1, preview_text.replace('\n', ' ')))
 
-        # Create area data
-        areas.append({
-            "page": page_num + 1,
-            "area_index": i,
-            "bbox": [int(y1), int(y2)],
-            "ocr_text": ocr_text,
-            "barcodes": barcodes_data
-        })
+            # Create area data
+            areas.append({
+                "page": page_num + 1,
+                "area_index": i,
+                "bbox": [int(y1), int(y2)],
+                "ocr_text": ocr_text,
+                "barcodes": barcodes_data
+            })
 
-    # Create and return debug image along with areas
-    debug_img = create_debug_image(img_cv, lines_y, barcode_annots, ocr_annots)
+        # Create debug image only if requested
+        debug_img = None
+        if create_debug:
+            debug_img = create_debug_image(img_cv, lines_y, barcode_annots or [], ocr_annots or [])
 
-    return areas, debug_img
+        processing_time = time.time() - start_time
+        print(f"Page {page_num+1}: Processed {len(areas)} areas in {processing_time:.2f}s")
+        
+        return areas, debug_img
+        
+    except Exception as e:
+        print(f"Error processing page {page_num+1}: {e}")
+        return [], None
 
-def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None):
-    """Extract areas from PDF with OCR and barcode detection."""
+def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None, parallel_processing=True, enhance_quality=True):
+    """Optimized PDF extraction with optional parallel processing."""
     if lang_list is None:
         lang_list = ['en']
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
+    start_time = time.time()
+    print(f"Starting PDF processing: {pdf_path}")
+    
     # Setup
     images = convert_from_path(pdf_path)
+    print(f"Converted PDF to {len(images)} images")
+    
+    # Create a single OCR reader instance (reuse for better performance)
     reader = easyocr.Reader(lang_list)
     all_areas = []
     debug_images = []
-
-    # Process each page
-    for page_num, img in enumerate(images):
-        page_areas, debug_img = process_page(page_num, img, reader)
-        all_areas.extend(page_areas)
-        debug_images.append(debug_img)
+    
+    create_debug = output_dir is not None
+    
+    if parallel_processing and len(images) > 1:
+        # Parallel processing for multi-page documents
+        print(f"Using parallel processing for {len(images)} pages")
+        
+        def process_single_page(page_data):
+            page_num, img = page_data
+            return process_page(page_num, img, reader, create_debug=create_debug, enhance_quality=enhance_quality)
+        
+        # Use ThreadPoolExecutor for I/O bound OCR operations
+        max_workers = min(4, len(images))  # Limit to avoid memory issues
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all page processing tasks
+            future_to_page = {executor.submit(process_single_page, (i, img)): i 
+                            for i, img in enumerate(images)}
+            
+            # Collect results in order
+            page_results = [None] * len(images)
+            for future in as_completed(future_to_page):
+                page_num = future_to_page[future]
+                try:
+                    page_areas, debug_img = future.result()
+                    page_results[page_num] = (page_areas, debug_img)
+                except Exception as e:
+                    print(f"Error processing page {page_num + 1}: {e}")
+                    page_results[page_num] = ([], None)
+            
+            # Flatten results
+            for page_areas, debug_img in page_results:
+                if page_areas:
+                    all_areas.extend(page_areas)
+                if debug_img is not None:
+                    debug_images.append(debug_img)
+    else:
+        # Sequential processing
+        print("Using sequential processing")
+        for page_num, img in enumerate(images):
+            page_areas, debug_img = process_page(
+                page_num, img, reader, 
+                create_debug=create_debug, 
+                enhance_quality=enhance_quality
+            )
+            all_areas.extend(page_areas)
+            if debug_img is not None:
+                debug_images.append(debug_img)
 
     # Save debug images if output_dir provided
-    if output_dir:
+    if output_dir and debug_images:
         os.makedirs(output_dir, exist_ok=True)
         for page_num, debug_img in enumerate(debug_images):
-            debug_img_path = os.path.join(output_dir, f'page_{page_num+1}_areas.jpg')
-            cv2.imwrite(debug_img_path, debug_img)
-
+            if debug_img is not None:
+                debug_img_path = os.path.join(output_dir, f'page_{page_num+1}_areas.jpg')
+                cv2.imwrite(debug_img_path, debug_img)
+                print(f"Saved debug image: {debug_img_path}")
+    
+    processing_time = time.time() - start_time
+    print(f"PDF processing completed in {processing_time:.2f}s - extracted {len(all_areas)} areas")
+    
     return all_areas, debug_images
 
 #############################################
@@ -273,10 +492,7 @@ def extract_job_number(json_data):
 
 def extract_job_details(json_data):
     """
-    Extract job details including job number, quantity and delivery date from the JSON data.
-
-    The job information is typically in the first areas of the first page,
-    with OCR text containing strings like "Job No", "Quantity", and "Delivery Date".
+    Enhanced job details extraction with improved pattern matching and validation.
 
     Args:
         json_data (list): List of area dictionaries from the JSON file
@@ -291,6 +507,9 @@ def extract_job_details(json_data):
         "delivery_date": ""
     }
 
+    if not json_data:
+        return job_details
+
     # Sort areas by page and area_index to ensure proper ordering
     sorted_areas = sorted(json_data, key=lambda x: (x.get('page', 0), x.get('area_index', 0)))
 
@@ -299,56 +518,95 @@ def extract_job_details(json_data):
     if not first_page_areas:
         return job_details
 
-    # First, extract job number
+    # Enhanced job number extraction with multiple strategies
+    job_number_patterns = [
+        r'(?:Job\s*No\.?|Job\s*Number)[:\s]*([A-Z0-9]+)',
+        r'(?:Job)[:\s]*([A-Z0-9]{6,})',  # Job codes are typically 6+ characters
+        r'(?:Work\s*Order|WO)[:\s]*([A-Z0-9]+)',
+    ]
+    
+    # Strategy 1: Look for job number in areas with "Job No" text and barcodes
     for area in first_page_areas:
         ocr_text = area.get('ocr_text', '').strip()
-        if 'Job No' in ocr_text and 'barcodes' in area and area['barcodes']:
-            job_details["job_number"] = area['barcodes'][0].get('barcode', '')
-            break
+        if any(keyword in ocr_text.upper() for keyword in ['JOB NO', 'JOB NUMBER', 'WORK ORDER']):
+            # Check if there's a barcode in this area
+            if 'barcodes' in area and area['barcodes']:
+                barcode_value = area['barcodes'][0].get('barcode', '')
+                if len(barcode_value) >= 6:  # Valid job numbers are typically longer
+                    job_details["job_number"] = barcode_value
+                    break
+            
+            # Try to extract from OCR text using patterns
+            for pattern in job_number_patterns:
+                match = re.search(pattern, ocr_text, re.IGNORECASE)
+                if match and len(match.group(1)) >= 6:
+                    job_details["job_number"] = match.group(1)
+                    break
+            if job_details["job_number"]:
+                break
 
-    # If job number wasn't found, look for the first barcode on page 1
+    # Strategy 2: If no job number found, look for the first substantial barcode
     if not job_details["job_number"]:
         for area in first_page_areas:
             if 'barcodes' in area and area['barcodes']:
-                job_details["job_number"] = area['barcodes'][0].get('barcode', '')
-                break
+                barcode_value = area['barcodes'][0].get('barcode', '')
+                # Filter out obviously non-job-number barcodes
+                if len(barcode_value) >= 6 and not barcode_value.isdigit():
+                    job_details["job_number"] = barcode_value
+                    break
 
-    # Now check for quantity and delivery date in all header areas (before first operation)
-    # Find the index of the first operation area
+    # Find operation boundary for header area detection
     first_op_index = -1
+    operation_keywords = ['operation', 'scan barcodes to start', 'op ', 'step ']
+    
     for i, area in enumerate(first_page_areas):
         ocr_text = area.get('ocr_text', '').strip().lower()
-        if ('operation' in ocr_text and any(str(i) in ocr_text for i in range(10))) or 'scan barcodes to start job operation' in ocr_text:
-            first_op_index = i
-            break
+        if any(keyword in ocr_text for keyword in operation_keywords):
+            # Additional check for operation numbers
+            if re.search(r'(?:operation|op)\s*\d+', ocr_text) or 'scan barcodes' in ocr_text:
+                first_op_index = i
+                break
 
-    # If we found operations, only search areas before that
+    # Define header areas (before operations)
     header_areas = first_page_areas[:first_op_index] if first_op_index > 0 else first_page_areas
 
-    # Check all header areas for quantity
+    # Enhanced quantity extraction with better patterns
     quantity_patterns = [
-        r'(?:Quantity|QTY|Qty)[:\s]+(\d+\.?\d*)',  # Match "Quantity: 123" or "QTY 123"
-        r'(?:Quantity|QTY|Qty)\s*[-:]\s*(\d+\.?\d*)',  # Match "Quantity - 123" or "QTY-123"
-        r'Qty\s*of\s*traceable\s*items:?\s*(\d+\.?\d*)',  # Match "Qty of traceable items: 10.00"
+        r'(?:Quantity|QTY|Qty)\s*[:\-]?\s*(\d+(?:\.\d+)?)',  # Basic quantity patterns
+        r'(?:Qty\s*of\s*traceable\s*items?)\s*[:\-]?\s*(\d+(?:\.\d+)?)',  # Traceable items
+        r'(?:Total\s*Qty?)\s*[:\-]?\s*(\d+(?:\.\d+)?)',  # Total quantity
+        r'(?:Pieces?|Pcs?)\s*[:\-]?\s*(\d+(?:\.\d+)?)',  # Pieces
+        r'(?:Units?)\s*[:\-]?\s*(\d+(?:\.\d+)?)',  # Units
     ]
 
     for area in header_areas:
         ocr_text = area.get('ocr_text', '').strip()
         for pattern in quantity_patterns:
-            quantity_match = re.search(pattern, ocr_text)
+            quantity_match = re.search(pattern, ocr_text, re.IGNORECASE)
             if quantity_match:
-                job_details["quantity"] = quantity_match.group(1)
-                break
+                qty_value = quantity_match.group(1)
+                # Validate quantity (should be reasonable)
+                try:
+                    qty_float = float(qty_value)
+                    if 0 < qty_float <= 10000:  # Reasonable range
+                        job_details["quantity"] = qty_value
+                        break
+                except ValueError:
+                    continue
         if job_details["quantity"]:
             break
 
-    # Check all header areas for delivery date
+    # Enhanced delivery date extraction with more formats
     date_patterns = [
-        r'(?:Delivery\s*Date|Del[.\s]*Date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',  # DD/MM/YYYY format
-        r'(?:Delivery\s*Date|Del[.\s]*Date)[:\s]+(\d{1,2}[-]\d{1,2}[-]\d{4})',  # DD-MM-YYYY format
-        r'(?:Delivery\s*Date|Del[.\s]*Date)[:\s]+(\d{1,2}-[A-Za-z]+-\d{4})',  # DD-Month-YYYY format
-        r'(?:Date\s*Required|Due\s*Date)[:\s]+(\d{1,2}-[A-Za-z]+-\d{4})',  # Date Required format
-        r'(?:Date\s*Required|Due\s*Date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',  # Date Required DD/MM/YYYY
+        # Standard formats
+        r'(?:Delivery\s*Date|Del\.?\s*Date|Due\s*Date|Date\s*Required)\s*[:\-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+        r'(?:Delivery\s*Date|Del\.?\s*Date|Due\s*Date|Date\s*Required)\s*[:\-]?\s*(\d{1,2}[-]\d{1,2}[-]\d{4})',
+        # Month name formats
+        r'(?:Delivery\s*Date|Del\.?\s*Date|Due\s*Date|Date\s*Required)\s*[:\-]?\s*(\d{1,2}[-\s][A-Za-z]{3,9}[-\s]\d{4})',
+        # ISO format
+        r'(?:Delivery\s*Date|Del\.?\s*Date|Due\s*Date|Date\s*Required)\s*[:\-]?\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})',
+        # Flexible date patterns
+        r'(?:Required\s*by|Needed\s*by|Complete\s*by)\s*[:\-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
     ]
 
     for area in header_areas:
@@ -356,8 +614,11 @@ def extract_job_details(json_data):
         for pattern in date_patterns:
             date_match = re.search(pattern, ocr_text, re.IGNORECASE)
             if date_match:
-                job_details["delivery_date"] = date_match.group(1)
-                break
+                date_value = date_match.group(1)
+                # Basic date validation
+                if len(date_value) >= 8:  # Minimum reasonable date length
+                    job_details["delivery_date"] = date_value
+                    break
         if job_details["delivery_date"]:
             break
 
@@ -397,12 +658,12 @@ def clean_operation_name(op_name):
 
 def extract_operations(json_data):
     """
-    Extract operations from JSON data areas.
+    Enhanced operations extraction with improved pattern matching and validation.
 
     Each operation contains:
-    - op_number: The number at the beginning of the OCR text (may be preceded by "Operation")
-    - op_name: The text following the op_number on the same line or next line
-    - op_id: The value of the barcode (if available, otherwise empty)
+    - op_number: The number at the beginning of the OCR text
+    - op_name: The text following the op_number
+    - op_id: The value of the barcode (if available)
 
     Args:
         json_data (list): List of area dictionaries from the JSON file
@@ -410,116 +671,189 @@ def extract_operations(json_data):
     Returns:
         list: List of operation dictionaries
     """
-    # First pass: Extract all operations by their operation numbers
+    if not json_data:
+        return []
+        
     operations_dict = {}  # Dictionary keyed by operation number
-    barcodes_by_op_number = {}  # Dictionary to store barcodes that might match operations
+    barcodes_by_op_number = {}  # Dictionary to store barcodes
+    area_barcodes = {}  # Store barcodes by area for proximity matching
 
-    # Define valid operation number range
-    MAX_OP_NUMBER = 1000  # Set a reasonable upper limit for operation numbers
+    # Define valid operation number range - allow common manufacturing operation numbers
+    MAX_OP_NUMBER = 1000
+    MIN_OP_NUMBER = 1  # Allow operations starting from 1, but with better filtering
 
-    # First pass: Extract operations and collect potential barcode matches
-    for area in json_data:
-        ocr_text = area.get('ocr_text', '').strip()
-        barcodes = area.get('barcodes', [])
+    try:
+        # First pass: Extract operations and collect barcodes
+        for area_idx, area in enumerate(json_data):
+            ocr_text = area.get('ocr_text', '').strip()
+            barcodes = area.get('barcodes', [])
+            page = area.get('page', 0)
 
-        if not ocr_text:
-            continue
+            if not ocr_text:
+                continue
 
-        # Modified approach: First check if entire text starts with an operation number
-        # This handles cases where operation number is on one line and name is on the next
-        operation_pattern_multiline = r'^(?:Operation\s+)?(\d+(?:\.\d+)?)\s*[\n\s]+(.+)'
-        match = re.match(operation_pattern_multiline, ocr_text, re.DOTALL)
-        if match:
-            op_number = match.group(1)
-            # Get the first line after the operation number for the name
-            remaining_lines = match.group(2).strip().split('\n')
-            op_name = remaining_lines[0].strip()
+            # Enhanced operation patterns - balanced to catch real operations
+            operation_patterns = [
+                # Multi-line pattern: operation number on one line, name on next
+                r'^(?:Operation\s+)?(\d+(?:\.\d+)?)\s*[\n\r]+\s*(.+?)(?:\n|$)',
+                # Single line with "Operation" prefix
+                r'^Operation\s+(\d+(?:\.\d+)?)\s+(.+?)(?:\s*(?:Scan|~)|$)',
+                # Operation with year pattern (like "150 2022 3D PRINTING")
+                r'^(\d+(?:\.\d+)?)\s+(?:20\d\d\s+)?(.+?)(?:\s*(?:Scan|~)|$)',
+                # Line-by-line pattern for operations split across lines
+                r'(?:^|\n)(\d+(?:\.\d+)?)\s*\n(?:20\d\d\s*\n)?(.+?)(?=\n|$)',
+            ]
 
-            # Validate operation number is within reasonable range
-            try:
-                op_num_int = int(float(op_number))
-                if op_num_int <= MAX_OP_NUMBER and op_number not in operations_dict:
-                    # Clean up op_name (improved pattern to handle hyphenated scan text)
-                    op_name = clean_operation_name(op_name)
+            # Try each pattern
+            for pattern in operation_patterns:
+                matches = re.finditer(pattern, ocr_text, re.MULTILINE | re.DOTALL)
+                for match in matches:
+                    op_number = match.group(1)
+                    op_name_raw = match.group(2).strip()
 
-                    operations_dict[op_number] = {
-                        'op_number': op_number,
-                        'op_name': op_name,
-                        'op_id': '',  # Will be filled in second pass if barcode is available
-                        'page': area.get('page', 0)
-                    }
-            except ValueError:
-                pass
+                    # Validate operation number
+                    try:
+                        op_num_float = float(op_number)
+                        op_num_int = int(op_num_float)
+                        if not (MIN_OP_NUMBER <= op_num_int <= MAX_OP_NUMBER):
+                            continue
+                    except (ValueError, TypeError):
+                        continue
 
-        # Also check line by line (original approach)
-        for line in ocr_text.split('\n'):
-            line = line.strip()
-            # Pattern to match "Operation XX Name" or just "XX Name"
-            # Allow for "XXX 2022 Name" pattern seen in example-01.json
-            operation_pattern = r'^(?:Operation\s+)?(\d+(?:\.\d+)?)\s+(?:20\d\d\s+)?(.*)$'
-            match = re.match(operation_pattern, line)
+                    # Clean operation name
+                    op_name = clean_operation_name(op_name_raw)
+                    
+                    # Enhanced filtering to exclude non-operation content
+                    if len(op_name) < 2 or op_name.isdigit():
+                        continue
+                    
+                    # Skip obvious non-operations (dates, codes, quantities, etc.)
+                    skip_patterns = [
+                        r'^\d{1,2}[-/]\w+[-/]\d{4}$',  # Dates like "16-January-2025"
+                        r'^[A-Z]{2,3}\d{4,6}$',        # Codes like "AM0135"
+                        r'^\d+\.\d+$',                 # Quantities like "10.00"
+                        r'^(SCAN|Enter|Activity|Qty|delivered|so|far)\b',  # Common header words
+                        r'^[A-Z]{1,3}\d{1,3}$',        # Short codes (but allow if followed by manufacturing terms)
+                        r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\b',  # Month names
+                        r'^(Entcr|Acttvity)\b',        # OCR errors of "Enter Activity"
+                        r'^\d+\.\d+\s*(Qty|delivered)',  # Quantity-related text
+                        r'^(Target|Time)\b',           # Table headers
+                    ]
+                    
+                    if any(re.search(pattern, op_name, re.IGNORECASE) for pattern in skip_patterns):
+                        continue
+                    
+                    # Only accept operations that look like manufacturing processes
+                    # Must contain meaningful alphabetic content
+                    if not re.search(r'[A-Za-z]{3,}', op_name):
+                        continue
+                    
+                    # Additional check: operation names should contain manufacturing-related keywords
+                    # or be all caps (common for operation names)
+                    manufacturing_indicators = [
+                        r'\b(PRINT|CUT|CLEAN|BLAST|MACHINE|MILL|DRILL|WELD|ASSEMBLE|INSPECT|TEST)\b',
+                        r'^[A-Z\s]+$',  # All caps operation names
+                        r'\b(Wire|Sonic|Dry|EDM|WASH)\b',  # Common operation words
+                        r'\b(3D|ULTRA|Bead)\b',  # Specific manufacturing terms
+                    ]
+                    
+                    # Be more lenient - if it has manufacturing indicators OR looks like an operation name
+                    has_manufacturing_terms = any(re.search(pattern, op_name, re.IGNORECASE) for pattern in manufacturing_indicators)
+                    looks_like_operation = len(op_name) >= 4 and re.search(r'[A-Z]', op_name) and not op_name.isdigit()
+                    
+                    if not (has_manufacturing_terms or looks_like_operation):
+                        continue
 
-            if match:
-                op_number = match.group(1)
-                op_name = match.group(2)
+                    # Store operation (avoid duplicates, prefer first occurrence)
+                    if op_number not in operations_dict:
+                        operations_dict[op_number] = {
+                            'op_number': op_number,
+                            'op_name': op_name,
+                            'op_id': '',
+                            'page': page,
+                            'area_index': area_idx,
+                            'confidence': 1.0  # Base confidence
+                        }
 
-                # Validate operation number is within reasonable range
-                try:
-                    op_num_int = int(float(op_number))
-                    if op_num_int > MAX_OP_NUMBER:
-                        continue  # Skip unrealistic operation numbers (like 2022)
-                except ValueError:
-                    continue
+            # Process barcodes in this area
+            if barcodes:
+                area_barcodes[area_idx] = []
+                for barcode in barcodes:
+                    barcode_value = barcode.get('barcode', '')
+                    if not barcode_value:
+                        continue
+                        
+                    area_barcodes[area_idx].append(barcode_value)
+                    
+                    # Enhanced barcode-to-operation matching
+                    barcode_patterns = [
+                        r'J\w*Q(\d+)$',  # Standard J...Q### format
+                        r'.*Q(\d+)$',    # Any barcode ending with Q###
+                        r'.*-(\d+)$',    # Barcodes ending with -###
+                        r'.*(\d{2,3})$', # Last 2-3 digits as operation number
+                    ]
+                    
+                    for bc_pattern in barcode_patterns:
+                        bc_match = re.search(bc_pattern, barcode_value)
+                        if bc_match:
+                            extracted_op_num = bc_match.group(1)
+                            try:
+                                if MIN_OP_NUMBER <= int(extracted_op_num) <= MAX_OP_NUMBER:
+                                    barcodes_by_op_number[extracted_op_num] = barcode_value
+                                    break
+                            except ValueError:
+                                continue
 
-                # Clean up op_name (using the separate function)
-                op_name = clean_operation_name(op_name)
+        # Second pass: Enhanced barcode assignment
+        for op_number, operation in operations_dict.items():
+            area_idx = operation['area_index']
+            
+            # Strategy 1: Direct operation number match in barcode
+            if op_number in barcodes_by_op_number:
+                operation['op_id'] = barcodes_by_op_number[op_number]
+                operation['confidence'] += 0.5
+                continue
+            
+            # Strategy 2: Look for barcodes in the same area
+            if area_idx in area_barcodes and area_barcodes[area_idx]:
+                # Prefer barcodes that contain the operation number
+                for barcode_value in area_barcodes[area_idx]:
+                    if op_number in barcode_value:
+                        operation['op_id'] = barcode_value
+                        operation['confidence'] += 0.3
+                        break
+                
+                # If no match found, use the first barcode in the area
+                if not operation['op_id'] and area_barcodes[area_idx]:
+                    operation['op_id'] = area_barcodes[area_idx][0]
+                    operation['confidence'] += 0.1
+            
+            # Strategy 3: Look for barcodes in nearby areas (proximity matching)
+            if not operation['op_id']:
+                for nearby_area_idx in range(max(0, area_idx-2), min(len(json_data), area_idx+3)):
+                    if nearby_area_idx in area_barcodes and area_barcodes[nearby_area_idx]:
+                        for barcode_value in area_barcodes[nearby_area_idx]:
+                            if op_number in barcode_value:
+                                operation['op_id'] = barcode_value
+                                operation['confidence'] += 0.2
+                                break
+                        if operation['op_id']:
+                            break
 
-                if op_number not in operations_dict:
-                    operations_dict[op_number] = {
-                        'op_number': op_number,
-                        'op_name': op_name,
-                        'op_id': '',  # Will be filled in second pass if barcode is available
-                        'page': area.get('page', 0)
-                    }
+        # Convert to sorted list and clean up
+        operations_list = []
+        for op_number in sorted(operations_dict.keys(), key=lambda x: float(x)):
+            op = operations_dict[op_number].copy()
+            # Remove internal fields
+            op.pop('area_index', None)
+            op.pop('confidence', None)
+            operations_list.append(op)
 
-        # Extract barcodes and associate them with op_numbers when possible
-        if barcodes:
-            for barcode in barcodes:
-                barcode_value = barcode.get('barcode', '')
-                if barcode_value.startswith('J'):
-                    # Extract operation number from barcode if possible
-                    # e.g., J4440801A0Q120 for operation 120
-                    barcode_op_match = re.search(r'Q(\d+)$', barcode_value)
-                    if barcode_op_match:
-                        barcode_op_num = barcode_op_match.group(1)
-                        barcodes_by_op_number[barcode_op_num] = barcode_value
-
-                    # Also store by page for proximity matching
-                    page = area.get('page', 0)
-                    if page not in barcodes_by_op_number:
-                        barcodes_by_op_number[page] = []
-                    barcodes_by_op_number[page].append(barcode_value)
-
-    # Second pass: Assign barcodes to operations if available
-    for op_number, operation in operations_dict.items():
-        # First try to match by operation number in barcode (e.g., J4440801A0Q120 for op 120)
-        if op_number in barcodes_by_op_number:
-            operation['op_id'] = barcodes_by_op_number[op_number]
-            continue
-
-        # Look for any J barcode with the operation number at the end
-        for barcode_op_num, barcode_value in barcodes_by_op_number.items():
-            if isinstance(barcode_op_num, str) and barcode_op_num.isdigit():
-                if op_number == barcode_op_num:
-                    operation['op_id'] = barcode_value
-                    break
-
-    # Convert dictionary to list, sorted by operation number
-    operations_list = []
-    for op_number in sorted(operations_dict.keys(), key=lambda x: int(float(x))):
-        operations_list.append(operations_dict[op_number])
-
-    return operations_list
+        return operations_list
+        
+    except Exception as e:
+        print(f"Error in extract_operations: {e}")
+        return []
 
 def extract_job_and_operations(json_data):
     """
@@ -549,65 +883,144 @@ def extract_job_and_operations(json_data):
 # Main Processing Function
 #############################################
 
-def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=True, save_annotated=True):
+def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=True, save_annotated=True, 
+                        parallel_processing=True, enhance_quality=True):
     """
-    Process a PDF job document to extract job number and operations.
+    Enhanced PDF processing with improved performance and accuracy.
 
     This function:
-    1. Extracts areas, barcodes, and OCR text from the PDF
-    2. Extracts job number and operations from this data
-    3. Optionally saves:
-       - Annotated images showing areas, barcodes, and OCR text
-       - Raw JSON with all extraction data
-       - Clean JSON with job number and operations
+    1. Extracts areas, barcodes, and OCR text from the PDF with enhanced preprocessing
+    2. Extracts job number and operations using improved pattern matching
+    3. Optionally saves annotated images and JSON data
+    4. Supports parallel processing for multi-page documents
 
     Args:
         pdf_path (str): Path to the PDF file to process
-        output_dir (str, optional): Directory to save output files. If None, no files are saved
+        output_dir (str, optional): Directory to save output files
         lang_list (list, optional): List of language codes for OCR. Defaults to ['en']
         save_raw (bool): Whether to save the raw extraction data as JSON
         save_annotated (bool): Whether to save annotated debug images
+        parallel_processing (bool): Whether to use parallel processing for multi-page documents
+        enhance_quality (bool): Whether to use enhanced image preprocessing for better accuracy
 
     Returns:
         dict: A dictionary containing the job number and a list of operations
+    
+    Raises:
+        FileNotFoundError: If the PDF file doesn't exist
+        Exception: For other processing errors
     """
-    if lang_list is None:
-        lang_list = ['en']
+    start_time = time.time()
+    
+    try:
+        if lang_list is None:
+            lang_list = ['en']
 
-    input_path = Path(pdf_path)
-    file_stem = input_path.stem
+        # Validate input
+        if not os.path.exists(pdf_path):
+            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+            
+        input_path = Path(pdf_path)
+        file_stem = input_path.stem
+        print(f"Processing document: {file_stem}")
 
-    # Create output directory if specified
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-        annotated_dir = os.path.join(output_dir, "annotated")
+        # Create output directory if specified
+        annotated_dir = None
+        if output_dir:
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                if save_annotated:
+                    annotated_dir = os.path.join(output_dir, "annotated")
+                    os.makedirs(annotated_dir, exist_ok=True)
+            except Exception as e:
+                print(f"Warning: Could not create output directory: {e}")
+                output_dir = None
 
-    # Step 1: Extract areas, OCR text, and barcodes from PDF
-    areas, debug_images = extract_areas_from_pdf(
-        pdf_path,
-        lang_list=lang_list,
-        output_dir=annotated_dir if output_dir and save_annotated else None
-    )
+        # Step 1: Extract areas, OCR text, and barcodes from PDF
+        print("Step 1: Extracting areas and performing OCR...")
+        try:
+            areas, debug_images = extract_areas_from_pdf(
+                pdf_path,
+                lang_list=lang_list,
+                output_dir=annotated_dir,
+                parallel_processing=parallel_processing,
+                enhance_quality=enhance_quality
+            )
+            
+            if not areas:
+                print("Warning: No areas extracted from PDF")
+                return {
+                    "job_number": "",
+                    "quantity": "",
+                    "delivery_date": "",
+                    "operations": []
+                }
+                
+        except Exception as e:
+            print(f"Error during area extraction: {e}")
+            raise
 
-    # Step 2: Extract job number and operations from the extracted data
-    job_and_operations = extract_job_and_operations(areas)
+        # Step 2: Extract job number and operations from the extracted data
+        print("Step 2: Extracting job details and operations...")
+        try:
+            job_and_operations = extract_job_and_operations(areas)
+            
+            # Validate results
+            if not isinstance(job_and_operations, dict):
+                raise ValueError("Invalid job and operations data structure")
+                
+            # Log extraction results
+            job_num = job_and_operations.get('job_number', '')
+            ops_count = len(job_and_operations.get('operations', []))
+            print(f"Extracted job number: {job_num if job_num else 'Not found'}")
+            print(f"Extracted {ops_count} operations")
+            
+        except Exception as e:
+            print(f"Error during job/operations extraction: {e}")
+            # Return empty structure on error
+            job_and_operations = {
+                "job_number": "",
+                "quantity": "",
+                "delivery_date": "",
+                "operations": []
+            }
 
-    # Step 3: Save outputs if requested
-    if output_dir:
-        # Save raw extraction data if requested
-        if save_raw:
-            raw_json_path = os.path.join(output_dir, f"{file_stem}_raw.json")
-            with open(raw_json_path, 'w', encoding='utf-8') as f:
-                json.dump(areas, f, ensure_ascii=False, indent=2)
-            print(f"Raw extraction data saved to {raw_json_path}")
+        # Step 3: Save outputs if requested
+        if output_dir:
+            print("Step 3: Saving output files...")
+            try:
+                # Save raw extraction data if requested
+                if save_raw and areas:
+                    raw_json_path = os.path.join(output_dir, f"{file_stem}_raw.json")
+                    with open(raw_json_path, 'w', encoding='utf-8') as f:
+                        json.dump(areas, f, ensure_ascii=False, indent=2)
+                    print(f"Raw extraction data saved to {raw_json_path}")
 
-        # Save clean job and operations data
-        clean_json_path = os.path.join(output_dir, f"{file_stem}_job_and_operations.json")
-        with open(clean_json_path, 'w', encoding='utf-8') as f:
-            json.dump(job_and_operations, f, ensure_ascii=False, indent=2)
-        print(f"Job and operations data saved to {clean_json_path}")
+                # Save clean job and operations data
+                clean_json_path = os.path.join(output_dir, f"{file_stem}_job_and_operations.json")
+                with open(clean_json_path, 'w', encoding='utf-8') as f:
+                    json.dump(job_and_operations, f, ensure_ascii=False, indent=2)
+                print(f"Job and operations data saved to {clean_json_path}")
+                
+            except Exception as e:
+                print(f"Warning: Error saving output files: {e}")
 
-    return job_and_operations
+        processing_time = time.time() - start_time
+        print(f"Document processing completed in {processing_time:.2f}s")
+        
+        return job_and_operations
+        
+    except FileNotFoundError:
+        raise  # Re-raise file not found errors
+    except Exception as e:
+        print(f"Critical error processing PDF document: {e}")
+        # Return empty structure for any other errors
+        return {
+            "job_number": "",
+            "quantity": "",
+            "delivery_date": "",
+            "operations": []
+        }
 
 #############################################
 # Command Line Interface
@@ -643,6 +1056,16 @@ def main():
         help="Don't save annotated debug images"
     )
     parser.add_argument(
+        "--no-parallel",
+        action="store_true",
+        help="Disable parallel processing for multi-page documents"
+    )
+    parser.add_argument(
+        "--fast-mode",
+        action="store_true",
+        help="Use faster processing with reduced quality enhancements"
+    )
+    parser.add_argument(
         "-v", "--version",
         action="store_true",
         help="Display version information"
@@ -667,7 +1090,9 @@ def main():
                 output_dir=args.output_dir,
                 lang_list=args.lang,
                 save_raw=not args.no_raw,
-                save_annotated=not args.no_annotated
+                save_annotated=not args.no_annotated,
+                parallel_processing=not args.no_parallel,
+                enhance_quality=not args.fast_mode
             )
 
             # If no output directory specified, print the result to console

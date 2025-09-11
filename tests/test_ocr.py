@@ -11,24 +11,29 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import job_card_extractor
 
 class TestOCRFunctions(unittest.TestCase):
-    @patch('cv2.medianBlur')
-    @patch('cv2.filter2D')
+    @patch('cv2.bilateralFilter')
+    @patch('cv2.createCLAHE')
     @patch('cv2.cvtColor')
     @patch('cv2.adaptiveThreshold')
     @patch('cv2.resize')
     def test_preprocess_image_for_ocr(self, mock_resize, mock_threshold, mock_cvtcolor,
-                                    mock_filter, mock_median):
-        """Test the image preprocessing function for OCR"""
+                                    mock_clahe_create, mock_bilateral):
+        """Test the enhanced image preprocessing function for OCR"""
         # Create dummy image
         crop = np.zeros((300, 400, 3), dtype=np.uint8)
 
         # Set up mocks to pass through the data
-        mock_median.return_value = crop
-        mock_filter.return_value = crop
+        mock_bilateral.return_value = crop
         mock_cvtcolor.side_effect = [
             np.zeros((300, 400), dtype=np.uint8),  # First call (to grayscale)
             np.zeros((300, 400, 3), dtype=np.uint8)  # Second call (back to RGB)
         ]
+        
+        # Mock CLAHE
+        mock_clahe = MagicMock()
+        mock_clahe.apply.return_value = np.zeros((300, 400), dtype=np.uint8)
+        mock_clahe_create.return_value = mock_clahe
+        
         mock_threshold.return_value = np.zeros((300, 400), dtype=np.uint8)
         mock_resize.return_value = np.zeros((600, 800), dtype=np.uint8)
 
@@ -36,24 +41,29 @@ class TestOCRFunctions(unittest.TestCase):
         result = job_card_extractor.preprocess_image_for_ocr(crop)
 
         # Verify calls
-        mock_median.assert_called_once()
-        mock_filter.assert_called_once()
+        mock_bilateral.assert_called_once()
+        mock_clahe_create.assert_called_once()
         self.assertEqual(mock_cvtcolor.call_count, 2)
         mock_threshold.assert_called_once()
 
-        # Since height < 600, resize should be called
+        # Since height < 400, resize should be called
         mock_resize.assert_called_once()
 
-    def test_perform_ocr(self):
-        """Test the OCR text extraction function"""
+    @patch('cv2.imencode')
+    def test_perform_ocr(self, mock_imencode):
+        """Test the enhanced OCR text extraction function"""
         # Create a mock reader
         mock_reader = MagicMock()
+        # Enhanced OCR returns detailed results with confidence
         mock_reader.readtext.return_value = [
-            "Line 1_with_underscore",
-            " Line 2 with spaces ",
-            "",  # Empty line that should be skipped
-            "Line 3"
+            ([(0, 0), (100, 0), (100, 20), (0, 20)], "Line 1_with_underscore", 0.9),
+            ([(0, 25), (100, 25), (100, 45), (0, 45)], " Line 2 with spaces ", 0.8),
+            ([(0, 50), (100, 50), (100, 70), (0, 70)], "", 0.1),  # Low confidence, should be skipped
+            ([(0, 75), (100, 75), (100, 95), (0, 95)], "Line 3", 0.7)
         ]
+
+        # Mock image encoding for caching
+        mock_imencode.return_value = (True, np.array([1, 2, 3, 4]))
 
         # Create dummy image
         image = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -65,8 +75,8 @@ class TestOCRFunctions(unittest.TestCase):
         expected = "Line 1 with underscore\nLine 2 with spaces\nLine 3"
         self.assertEqual(result, expected)
 
-        # Verify reader was called correctly
-        mock_reader.readtext.assert_called_once_with(image, detail=0, paragraph=True)
+        # Verify reader was called correctly with enhanced parameters
+        mock_reader.readtext.assert_called_once_with(image, detail=True, paragraph=False)
 
     @patch('cv2.rectangle')
     @patch('cv2.putText')
