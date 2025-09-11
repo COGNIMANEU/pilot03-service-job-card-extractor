@@ -48,6 +48,7 @@ class ExtractionLogger:
     """
     Comprehensive logging system for tracking the extraction process.
     Creates a single unified log file containing all extraction information.
+    Also collects metadata for benchmarking and evaluation.
     """
     
     def __init__(self, output_dir: str, job_number: str = "unknown"):
@@ -56,6 +57,33 @@ class ExtractionLogger:
         self.logger = None
         self.start_time = datetime.now()
         self.current_operation = None
+        
+        # Metadata collection
+        self.metadata = {
+            "extraction_info": {
+                "extractor_version": "1.1.0",
+                "extraction_timestamp": self.start_time.isoformat(),
+                "processing_settings": {},
+                "performance_metrics": {}
+            },
+            "document_info": {
+                "total_pages": 0,
+                "total_areas": 0,
+                "processing_time_seconds": 0.0
+            },
+            "operation_statistics": {
+                "total_operations_found": 0,
+                "operations_with_barcodes": 0,
+                "success_rate_percent": 0.0,
+                "confidence_scores": {},
+                "extraction_strategies": {}
+            },
+            "quality_metrics": {
+                "ocr_confidence_avg": 0.0,
+                "barcode_detection_rate": 0.0,
+                "pattern_match_success": {}
+            }
+        }
         
         # Ensure output directory exists
         os.makedirs(output_dir, exist_ok=True)
@@ -190,6 +218,58 @@ class ExtractionLogger:
             self.logger.info(f"Total Processing Time: {processing_time:.2f}s")
             self.logger.info(f"End Time: {datetime.now()}")
             self.logger.info("="*80)
+    
+    def set_processing_settings(self, parallel_processing: bool, enhance_quality: bool, lang_list: list):
+        """Set processing settings for metadata."""
+        self.metadata["extraction_info"]["processing_settings"] = {
+            "parallel_processing": parallel_processing,
+            "enhance_quality": enhance_quality,
+            "ocr_languages": lang_list,
+            "cache_enabled": True
+        }
+    
+    def set_document_info(self, total_pages: int, total_areas: int):
+        """Set document information for metadata."""
+        self.metadata["document_info"]["total_pages"] = total_pages
+        self.metadata["document_info"]["total_areas"] = total_areas
+    
+    def add_operation_metadata(self, operation_number: str, confidence: float, strategy_used: str, pattern_matched: str):
+        """Add metadata for a specific operation."""
+        self.metadata["operation_statistics"]["confidence_scores"][operation_number] = confidence
+        self.metadata["operation_statistics"]["extraction_strategies"][operation_number] = strategy_used
+        self.metadata["quality_metrics"]["pattern_match_success"][operation_number] = pattern_matched
+    
+    def finalize_metadata(self, total_operations: int, successful_extractions: int, processing_time: float):
+        """Finalize metadata with summary statistics."""
+        self.metadata["document_info"]["processing_time_seconds"] = processing_time
+        self.metadata["operation_statistics"]["total_operations_found"] = total_operations
+        self.metadata["operation_statistics"]["operations_with_barcodes"] = successful_extractions
+        
+        if total_operations > 0:
+            success_rate = (successful_extractions / total_operations) * 100
+            self.metadata["operation_statistics"]["success_rate_percent"] = round(success_rate, 1)
+        
+        # Calculate average confidence if we have confidence scores
+        confidence_scores = list(self.metadata["operation_statistics"]["confidence_scores"].values())
+        if confidence_scores:
+            avg_confidence = sum(confidence_scores) / len(confidence_scores)
+            self.metadata["quality_metrics"]["ocr_confidence_avg"] = round(avg_confidence, 2)
+        
+        # Calculate barcode detection rate
+        if total_operations > 0:
+            barcode_rate = (successful_extractions / total_operations) * 100
+            self.metadata["quality_metrics"]["barcode_detection_rate"] = round(barcode_rate, 1)
+        
+        # Add performance metrics
+        self.metadata["extraction_info"]["performance_metrics"] = {
+            "avg_time_per_operation": round(processing_time / total_operations, 3) if total_operations > 0 else 0,
+            "operations_per_second": round(total_operations / processing_time, 2) if processing_time > 0 else 0,
+            "areas_per_second": round(self.metadata["document_info"]["total_areas"] / processing_time, 2) if processing_time > 0 else 0
+        }
+    
+    def get_metadata(self):
+        """Get the collected metadata."""
+        return self.metadata.copy()
     
     def close_all_loggers(self):
         """Close the unified logger and its handlers."""
@@ -983,7 +1063,9 @@ def extract_operations(json_data, logger=None):
                             'op_id': '',
                             'page': page,
                             'area_index': area_idx,
-                            'confidence': 1.0  # Base confidence
+                            'confidence': 1.0,  # Base confidence
+                            'extraction_strategy': '',
+                            'pattern_matched': successful_pattern
                         }
                         
                         # Setup operation logger and log extraction
@@ -1045,6 +1127,7 @@ def extract_operations(json_data, logger=None):
             if op_number in barcodes_by_op_number:
                 operation['op_id'] = barcodes_by_op_number[op_number]
                 operation['confidence'] += 0.5
+                operation['extraction_strategy'] = "direct_match"
                 if logger:
                     logger.log_operation(op_number, "info", f"Strategy 1 SUCCESS: Direct match - Barcode '{operation['op_id']}'")
                 continue
@@ -1056,6 +1139,7 @@ def extract_operations(json_data, logger=None):
                     if op_number in barcode_value:
                         operation['op_id'] = barcode_value
                         operation['confidence'] += 0.3
+                        operation['extraction_strategy'] = "same_area_match"
                         if logger:
                             logger.log_operation(op_number, "info", f"Strategy 2 SUCCESS: Same area match - Barcode '{barcode_value}'")
                         break
@@ -1064,6 +1148,7 @@ def extract_operations(json_data, logger=None):
                 if not operation['op_id'] and area_barcodes[area_idx]:
                     operation['op_id'] = area_barcodes[area_idx][0]
                     operation['confidence'] += 0.1
+                    operation['extraction_strategy'] = "same_area_fallback"
                     if logger:
                         logger.log_operation(op_number, "info", f"Strategy 2 FALLBACK: First barcode in area - '{operation['op_id']}'")
             
@@ -1077,14 +1162,27 @@ def extract_operations(json_data, logger=None):
                             if op_number in barcode_value:
                                 operation['op_id'] = barcode_value
                                 operation['confidence'] += 0.2
+                                operation['extraction_strategy'] = "proximity_match"
                                 if logger:
                                     logger.log_operation(op_number, "info", f"Strategy 3 SUCCESS: Nearby area {nearby_area_idx} - Barcode '{barcode_value}'")
                                 break
                         if operation['op_id']:
                             break
             
-            # Log final operation extraction result
+            # Set default strategy if no barcode found
+            if not operation['op_id']:
+                operation['extraction_strategy'] = "no_barcode_found"
+            
+            # Add metadata to logger
             if logger:
+                logger.add_operation_metadata(
+                    op_number,
+                    operation['confidence'],
+                    operation['extraction_strategy'],
+                    operation['pattern_matched']
+                )
+                
+                # Log final operation extraction result
                 logger.log_operation_extraction(
                     op_number, 
                     operation['op_name'], 
@@ -1100,9 +1198,9 @@ def extract_operations(json_data, logger=None):
             op = operations_dict[op_number].copy()
             if op.get('op_id'):
                 successful_extractions += 1
-            # Remove internal fields
+            # Remove internal fields but keep metadata for final output
             op.pop('area_index', None)
-            op.pop('confidence', None)
+            # Keep confidence, extraction_strategy, and pattern_matched for metadata
             operations_list.append(op)
 
         if logger:
@@ -1205,6 +1303,7 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
         if output_dir:
             try:
                 logger = ExtractionLogger(output_dir, "unknown")  # Job number will be updated later
+                logger.set_processing_settings(parallel_processing, enhance_quality, lang_list)
                 logger.log_main("info", f"Processing PDF: {pdf_path}")
                 logger.log_main("info", f"Language codes: {lang_list}")
                 logger.log_main("info", f"Parallel processing: {parallel_processing}")
@@ -1235,7 +1334,8 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
                     "job_number": "",
                     "quantity": "",
                     "delivery_date": "",
-                    "operations": []
+                    "operations": [],
+                    "extraction_metadata": logger.get_metadata() if logger else {}
                 }
                 
         except Exception as e:
@@ -1253,9 +1353,15 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
         try:
             job_and_operations = extract_job_and_operations(areas, logger)
             
-            # Update logger with job number if available
-            if logger and job_and_operations.get('job_number'):
-                logger.job_number = job_and_operations['job_number']
+            # Update logger with job number and document info if available
+            if logger:
+                if job_and_operations.get('job_number'):
+                    logger.job_number = job_and_operations['job_number']
+                
+                # Convert from pdf2image to get page count
+                from pdf2image import convert_from_path
+                images = convert_from_path(pdf_path)
+                logger.set_document_info(len(images), len(areas))
             
             # Validate results
             if not isinstance(job_and_operations, dict):
@@ -1277,14 +1383,29 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
                 "job_number": "",
                 "quantity": "",
                 "delivery_date": "",
-                "operations": []
+                "operations": [],
+                "extraction_metadata": logger.get_metadata() if logger else {}
             }
 
-        # Step 3: Save outputs if requested
+        # Step 3: Finalize metadata and prepare final output
+        if logger:
+            processing_time = time.time() - start_time
+            total_operations = len(job_and_operations.get('operations', []))
+            successful_extractions = sum(1 for op in job_and_operations.get('operations', []) if op.get('op_id'))
+            
+            logger.finalize_metadata(total_operations, successful_extractions, processing_time)
+            logger.log_main("info", f"Processing completed in {processing_time:.2f} seconds")
+            logger.log_main("info", f"Total operations: {total_operations}, Successful extractions: {successful_extractions}")
+            
+            # Add extraction metadata to the final JSON output
+            metadata = logger.get_metadata()
+            job_and_operations["extraction_metadata"] = metadata
+
+        # Step 4: Save outputs if requested
         if output_dir:
-            print("Step 3: Saving output files...")
+            print("Step 4: Saving output files...")
             if logger:
-                logger.log_main("info", "Step 3: Saving output files")
+                logger.log_main("info", "Step 4: Saving output files")
             
             try:
                 # Save raw extraction data if requested
@@ -1296,7 +1417,7 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
                     if logger:
                         logger.log_main("info", f"Raw extraction data saved to {raw_json_path}")
 
-                # Save clean job and operations data
+                # Save clean job and operations data (now includes metadata)
                 clean_json_path = os.path.join(output_dir, f"{file_stem}_job_and_operations.json")
                 with open(clean_json_path, 'w', encoding='utf-8') as f:
                     json.dump(job_and_operations, f, ensure_ascii=False, indent=2)
@@ -1310,15 +1431,8 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
                 if logger:
                     logger.log_main("warning", error_msg)
 
-        processing_time = time.time() - start_time
-        print(f"Document processing completed in {processing_time:.2f}s")
-        
-        # Log final summary
-        if logger:
-            total_operations = len(job_and_operations.get('operations', []))
-            successful_extractions = len([op for op in job_and_operations.get('operations', []) if op.get('op_id')])
-            logger.log_extraction_summary(total_operations, successful_extractions, processing_time)
-            logger.close_all_loggers()
+        # Step 5: Finalize and return results
+        print("Processing completed successfully!")
         
         return job_and_operations
         
@@ -1365,24 +1479,38 @@ def main():
         help="Language codes for OCR (default: en)"
     )
     parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="Save raw extraction data (overrides default no-raw)"
+    )
+    parser.add_argument(
         "--no-raw",
         action="store_true",
-        help="Don't save raw extraction data"
+        default=True,
+        help="Don't save raw extraction data (default: True)"
     )
     parser.add_argument(
         "--no-annotated",
         action="store_true",
-        help="Don't save annotated debug images"
+        default=False,
+        help="Don't save annotated debug images (default: False - images are saved)"
+    )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Enable parallel processing for multi-page documents (overrides default no-parallel)"
     )
     parser.add_argument(
         "--no-parallel",
         action="store_true",
-        help="Disable parallel processing for multi-page documents"
+        default=True,
+        help="Disable parallel processing for multi-page documents (default: True)"
     )
     parser.add_argument(
         "--fast-mode",
         action="store_true",
-        help="Use faster processing with reduced quality enhancements"
+        default=False,
+        help="Use faster processing with reduced quality enhancements (default: False)"
     )
     parser.add_argument(
         "-v", "--version",
@@ -1401,6 +1529,10 @@ def main():
         print("\nError: At least one PDF file is required unless using --version.")
         sys.exit(1)
 
+    # Process argument overrides
+    save_raw = args.raw if args.raw else not args.no_raw
+    parallel_processing = args.parallel if args.parallel else not args.no_parallel
+
     for pdf_file in args.pdf_files:
         print(f"\nProcessing {pdf_file}...")
         try:
@@ -1408,9 +1540,9 @@ def main():
                 pdf_file,
                 output_dir=args.output_dir,
                 lang_list=args.lang,
-                save_raw=not args.no_raw,
+                save_raw=save_raw,
                 save_annotated=not args.no_annotated,
-                parallel_processing=not args.no_parallel,
+                parallel_processing=parallel_processing,
                 enhance_quality=not args.fast_mode
             )
 
