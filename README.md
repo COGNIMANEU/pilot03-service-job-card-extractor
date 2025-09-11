@@ -43,8 +43,8 @@ The tool provides both command-line interface and programmatic access, with opti
 
 1. Clone this repository:
    ```
-   git clone <repository-url>
-   cd pilot03-service-jobcard-extractor
+   git clone https://github.com/COGNIMANEU/pilot03-service-job-card-extractor
+   cd pilot03-service-job-card-extractor
    ```
 
 2. Install required dependencies:
