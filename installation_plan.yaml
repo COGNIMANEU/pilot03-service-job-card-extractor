@@ -1,0 +1,40 @@
+target: job-card-extractor
+version: "1.1.0"
+description: CLI tool for extracting job numbers and operations from manufacturing job card PDFs
+
+phases:
+  - id: system-deps
+    name: Install system dependencies
+    steps:
+      - action: detect-os
+        description: Detect operating system
+      - action: detect-package-manager
+        description: Detect available package manager
+      - action: install-poppler
+        description: Install poppler-utils (required for pdf2image)
+
+  - id: python-env
+    name: Setup Python environment
+    steps:
+      - action: check-python
+        description: Verify Python 3.6+ is available
+      - action: create-venv
+        description: Create virtual environment
+      - action: install-deps
+        description: Install Python dependencies from requirements.txt
+
+  - id: verify
+    name: Verify installation
+    steps:
+      - action: check-poppler
+        description: Verify poppler is in PATH
+      - action: check-python-packages
+        description: Verify all Python packages are importable
+
+rollback:
+  - Remove virtual environment: rm -rf ~/.venv/job-card-extractor
+  - Remove poppler: brew uninstall poppler / apt-get remove poppler-utils
+
+verification:
+  - Command: pdfinfo -v
+  - Python: python3 -c "import easyocr; print('EasyOCR ready')"
