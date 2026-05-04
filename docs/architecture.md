@@ -4,27 +4,20 @@ Technical overview of Job Card Extractor design and implementation.
 
 ## System Overview
 
-```
-PDF Input
-    ↓
-PDF Conversion (pdf2image)
-    ↓
-Image Processing (OpenCV)
-├─ Area Detection (horizontal line detection)
-├─ Barcode Detection (PyZbar with multiple strategies)
-└─ OCR Processing (EasyOCR with caching)
-    ↓
-Information Extraction (regex patterns)
-├─ Job number extraction
-├─ Quantity extraction
-├─ Delivery date extraction
-└─ Operation extraction
-    ↓
-Barcode Association (multiple strategies)
-    ↓
-Result Generation (JSON + metadata)
-    ↓
-Output (JSON, logs, annotated images)
+```mermaid
+flowchart TD
+    A[PDF Input] --> B[PDF Conversion<br/>pdf2image + poppler]
+    B --> C[Image Processing<br/>OpenCV]
+    C --> D[Area Detection<br/>horizontal line detection]
+    D --> E[Barcode Detection<br/>PyZbar]
+    D --> F[OCR Processing<br/>EasyOCR + caching]
+    E & F --> G[Information Extraction<br/>regex patterns]
+    G --> H[Barcode Association<br/>hierarchical strategies]
+    H --> I[Result Generation<br/>JSON + metadata]
+    I --> J[Output Files]
+    J --> J1[JSON results]
+    J --> J2[Extraction logs]
+    J --> J3[Annotated images]
 ```
 
 ## Processing Pipeline
@@ -67,19 +60,9 @@ Detects barcodes in each document area.
 Extracts text from document areas using EasyOCR.
 
 **Optimization Features:**
-- **Image Preprocessing**
-  - Contrast enhancement
-  - Deskewing
-  - Noise reduction
-  - Thresholding
-
-- **Caching**
-  - Results cached to avoid redundant processing
-  - Session-level cache reduces processing time
-
-- **Language Support**
-  - Configurable language models
-  - Multi-language support for documents with mixed text
+- **Image Preprocessing** - Contrast enhancement, deskewing, noise reduction, thresholding
+- **Caching** - Session-level cache reduces redundant processing
+- **Language Support** - Configurable language models, multi-language support
 
 **Quality Enhancement:**
 - Applied by default (disable with `--fast-mode`)
@@ -116,57 +99,51 @@ Uses regex patterns to extract structured data from OCR text.
 #### Operation Extraction
 
 **Patterns Matched:**
-1. `^(\d+(?:\.\d+)?)\s+(.+?)(?:\s*(?:Scan|~)|$)` — Direct format
-2. `^(?:Operation\s+)?(\d+(?:\.\d+)?)\s*[\n\r]+\s*(.+?)(?:\n|$)` — Multi-line format
+1. `^(\d+(?:\.\d+)?)\s+(.+?)(?:\s*(?:Scan|~)|$)` -- Direct format
+2. `^(?:Operation\s+)?(\d+(?:\.\d+)?)\s*[\n\r]+\s*(.+?)(?:\n|$)` -- Multi-line format
 3. Additional patterns for variant layouts
 
 **Extracted Fields:**
-- `op_number` — Operation identifier
-- `op_name` — Operation description
-- `op_id` — Composite ID (job_number + operation_number)
+- `op_number` -- Operation identifier
+- `op_name` -- Operation description
+- `op_id` -- Composite ID (job_number + operation_number)
 
 ### 6. Barcode Association
 
 Matches extracted operations with detected barcodes using hierarchical strategies.
 
+```mermaid
+flowchart TD
+    A[Operation extracted] --> B{Barcode contains<br/>op number?}
+    B -- Yes --> C[direct_match<br/>confidence: 1.5]
+    B -- No --> D{Barcode in<br/>same area?}
+    D -- Yes --> E[same_area_match<br/>confidence: 1.3]
+    D -- No --> F{First barcode<br/>in area?}
+    F -- Yes --> G[same_area_fallback<br/>confidence: 1.0]
+    F -- No --> H{Barcode in<br/>adjacent areas?}
+    H -- Yes --> I[proximity_match<br/>confidence: 0.8]
+    H -- No --> J[no_barcode_found<br/>confidence: 0.3]
+```
+
 **Strategy Hierarchy:**
 
-1. **direct_match** (highest confidence)
-   - Barcode contains operation number directly
-   - Example: Barcode "J123456Q10" matches operation 10
-
-2. **same_area_match**
-   - Barcode found in same document area as operation
-   - Spatial proximity indicates association
-
-3. **same_area_fallback**
-   - First barcode found in operation's area
-   - Used when multiple barcodes in area
-
-4. **proximity_match**
-   - Barcode in adjacent areas (±2 areas)
-   - Last resort for operations without direct matches
-
-5. **no_barcode_found**
-   - Operation extracted but no barcode found
-   - Confidence score: 0
-
-**Confidence Scoring:**
-- Direct match: confidence = 1.5 (highest)
-- Same area: confidence = 1.3
-- Proximity: confidence = 0.8
-- No barcode: confidence = 0.3
+| Priority | Strategy | Confidence | Description |
+|----------|----------|-----------|-------------|
+| 1 | `direct_match` | 1.5 | Barcode contains operation number directly |
+| 2 | `same_area_match` | 1.3 | Barcode in same document area as operation |
+| 3 | `same_area_fallback` | 1.0 | First barcode found in operation's area |
+| 4 | `proximity_match` | 0.8 | Barcode in adjacent areas (+-2 areas) |
+| 5 | `no_barcode_found` | 0.3 | No associated barcode found |
 
 ### 7. Logging System
 
 **Unified Log File:**
 - Single log per extraction
-- Timestamped entries
-- ISO 8601 format
+- Timestamped entries in ISO 8601 format
 
 **Log Prefixes:**
-- `[MAIN]` — General process information
-- `[OP-XX]` — Operation-specific details (XX = operation number)
+- `[MAIN]` -- General process information
+- `[OP-XX]` -- Operation-specific details (XX = operation number)
 
 **Logged Information:**
 - Process start/end times
@@ -221,22 +198,10 @@ Detailed metrics for benchmarking and quality assessment.
 
 ### Optimization Strategies
 
-1. **Fast mode** (`--fast-mode`)
-   - Disables quality enhancement
-   - ~30% faster
-   - Slight quality reduction
-
-2. **Parallel processing** (default)
-   - 3-4x speedup on multi-core systems
-   - Higher memory usage
-
-3. **Language limiting** (`-l en`)
-   - Use only required languages
-   - English alone is fastest
-
-4. **Selective output** (`--no-annotated --no-raw`)
-   - Saves disk I/O
-   - Faster overall completion
+1. **Fast mode** (`--fast-mode`) - Disables quality enhancement, ~30% faster
+2. **Parallel processing** (default) - 3-4x speedup on multi-core systems
+3. **Language limiting** (`-l en`) - Use only required languages
+4. **Selective output** (`--no-annotated --no-raw`) - Saves disk I/O
 
 ## Data Structures
 
@@ -275,10 +240,10 @@ Detailed metrics for benchmarking and quality assessment.
 
 ### Recoverable Errors
 
-- Missing system dependencies → Clear error message
-- Corrupted PDF pages → Skipped, extraction continues
-- OCR timeouts → Fallback to faster method
-- Barcode read failures → Logged, operation continues
+- Missing system dependencies -> Clear error message
+- Corrupted PDF pages -> Skipped, extraction continues
+- OCR timeouts -> Fallback to faster method
+- Barcode read failures -> Logged, operation continues
 
 ### Logging
 
@@ -305,7 +270,7 @@ All errors and warnings logged with full context:
 
 ### Adding New Pattern Types
 
-Extend `_extract_operations()` in job_card_extractor.py:
+Extend `_extract_operations()` in `job_card_extractor.py`:
 
 1. Define new regex pattern
 2. Add matching strategy
@@ -332,3 +297,7 @@ Add language codes to `-l` option. EasyOCR supports 80+ languages.
 | Pillow | Image operations | 8.0+ |
 
 System: poppler (PDF conversion backend)
+
+---
+
+See also: [User Guide](user-guide.md) | [API Reference](api-reference.md) | [Development](development.md) | [Troubleshooting](troubleshooting.md)

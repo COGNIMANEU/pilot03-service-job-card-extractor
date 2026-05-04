@@ -267,3 +267,7 @@ The tool uses multiple strategies to match operations with barcodes:
 5. **no_barcode_found** — No associated barcode
 
 See [Architecture](architecture.md) for technical details.
+
+---
+
+See also: [Architecture](architecture.md) | [API Reference](api-reference.md) | [Development](development.md) | [Troubleshooting](troubleshooting.md)
