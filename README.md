@@ -1,49 +1,53 @@
 # Job Card Extractor
 
-Automated extraction of job numbers and operations from manufacturing job card PDFs using OCR and barcode detection.
+> Turn scanned job cards into structured data — no manual data entry required.
+
+A Python CLI tool that reads manufacturing job card PDFs and automatically extracts job numbers, quantities, delivery dates, and operation lists into structured JSON. It combines computer vision (OpenCV), optical character recognition (EasyOCR), and barcode scanning (PyZbar) to parse even low-quality scans, matching each operation to its corresponding barcode through a multi-strategy association algorithm. Designed for the [COGNIMAN](https://cognimaneu.github.io/cogniman-website/) manufacturing digitization pipeline (Pilot 03).
 
 **Version: 1.1.0** | [License: MIT](LICENSE)
 
 ## Quick Start
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# One-liner install (macOS/Linux)
+curl -sSL https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.ps1 | iex
 
 # Process a PDF
-python job_card_extractor.py example-01.pdf -o output
+source ~/.venv/job-card-extractor/bin/activate
+python job_card_extractor.py samples/example-01.pdf -o output
 ```
+
+## How It Works
+
+```mermaid
+flowchart LR
+    A[PDF Input] --> B[PDF to Images]
+    B --> C[Area Detection]
+    C --> D[Barcode Detection]
+    C --> E[OCR Processing]
+    D & E --> F[Information Extraction]
+    F --> G[Barcode Association]
+    G --> H[JSON Output]
+```
+
+The tool converts PDF pages to images, detects document areas via horizontal line detection, then runs barcode scanning and OCR in parallel on each area. Extracted text is parsed with regex patterns to identify job numbers, quantities, delivery dates, and operations. Finally, operations are matched to barcodes using a hierarchical strategy. See [Architecture](docs/architecture.md) for details.
 
 ## Features
 
-- **PDF Processing**: Multi-page PDF handling with parallel processing support
-- **Barcode Detection**: Multiple detection strategies for robust barcode reading
-- **OCR Text Extraction**: Advanced preprocessing and caching for accuracy
-- **Job Extraction**: Automatically identifies job numbers, quantities, and delivery dates
-- **Operation Recognition**: Extracts operation details with confidence scores
-- **Visual Debugging**: Annotated images showing detected areas and barcodes
-- **Comprehensive Logging**: Detailed extraction logs with performance metrics
-- **Flexible Output**: JSON results with raw data and metadata options
-
-## Installation
-
-### Prerequisites
-
-- Python 3.6+
-- Poppler: `brew install poppler` (macOS) or `apt-get install poppler-utils` (Linux)
-- Dependencies: See `requirements.txt`
-
-### Setup
-
-```bash
-git clone https://github.com/COGNIMANEU/pilot03-service-job-card-extractor
-cd pilot03-service-job-card-extractor
-pip install -r requirements.txt
-```
+- **PDF Processing** - Multi-page handling with parallel processing
+- **Barcode Detection** - Multiple strategies for robust Code128/Code39/EAN/UPC reading
+- **OCR Text Extraction** - EasyOCR with preprocessing, caching, and multi-language support
+- **Job Extraction** - Identifies job numbers, quantities, and delivery dates
+- **Operation Recognition** - Extracts operations with confidence scores and barcode association
+- **Visual Debugging** - Annotated images showing detected regions and barcodes
+- **Logging & Metrics** - Detailed extraction logs with performance and quality metrics
 
 ## Usage
 
-### CLI Examples
+### CLI
 
 ```bash
 # Basic usage
@@ -55,13 +59,13 @@ python job_card_extractor.py input.pdf -l en fr
 # Fast processing (quality tradeoff)
 python job_card_extractor.py input.pdf -o output --fast-mode
 
-# Skip raw data and annotated images
+# Minimal output (skip debug files)
 python job_card_extractor.py input.pdf -o output --no-raw --no-annotated
 ```
 
-For complete CLI reference, see [User Guide](docs/user-guide.md).
+See [User Guide](docs/user-guide.md) for all options and examples.
 
-### Programmatic Usage
+### Programmatic
 
 ```python
 from job_card_extractor import process_pdf_document
@@ -69,8 +73,7 @@ from job_card_extractor import process_pdf_document
 result = process_pdf_document(
     pdf_path='input.pdf',
     output_dir='output',
-    lang_list=['en'],
-    save_raw=True
+    lang_list=['en']
 )
 
 print(f"Job: {result['job_number']}")
@@ -78,33 +81,36 @@ for op in result['operations']:
     print(f"  Op {op['op_number']}: {op['op_name']}")
 ```
 
-For detailed API reference, see [API Documentation](docs/api-reference.md).
+See [API Reference](docs/api-reference.md) for the full interface.
 
 ## Output
 
-The tool generates:
+The tool generates structured JSON with extraction metadata:
 
-- **job_and_operations.json**: Structured extraction with metadata
-- **raw.json**: Raw extraction data for debugging
-- **extraction_process_*.log**: Timestamped extraction logs
-- **annotated/**: Debug images with detected regions
+```
+output_dir/
+├── {filename}_job_and_operations.json   # Main result
+├── {filename}_raw.json                  # Raw data (optional)
+├── extraction_process_*.log             # Processing log
+└── annotated/                           # Debug images (optional)
+```
 
-See [User Guide](docs/user-guide.md#output-structure) for details.
+See [User Guide - Output Structure](docs/user-guide.md#output-structure) for format details.
 
 ## Documentation
 
-- [**User Guide**](docs/user-guide.md) — CLI usage, options, and examples
-- [**API Reference**](docs/api-reference.md) — Programmatic interface and data format
-- [**Architecture**](docs/architecture.md) — Technical design and extraction strategies
-- [**Troubleshooting**](docs/troubleshooting.md) — Common issues and solutions
+| Document | Description |
+|----------|-------------|
+| [User Guide](docs/user-guide.md) | CLI usage, options, output format |
+| [API Reference](docs/api-reference.md) | Programmatic interface and data structures |
+| [Architecture](docs/architecture.md) | Processing pipeline, strategies, performance |
+| [Development](docs/development.md) | Local setup, testing, contributing |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
 
-## Versioning
+## Prerequisites
 
-This project uses [Semantic Versioning](https://semver.org/). See [Version History](docs/api-reference.md#version-history) for details.
-
-## Contributing
-
-Contributions welcome. Please submit a Pull Request.
+- Python 3.6+
+- Poppler (`brew install poppler` on macOS, `apt-get install poppler-utils` on Linux)
 
 ## License
 
