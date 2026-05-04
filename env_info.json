@@ -1,8 +1,0 @@
-{
-  "os": "darwin",
-  "arch": "arm64",
-  "package_manager": "brew",
-  "shell": "zsh",
-  "sudo_available": false,
-  "python_version": "3.12"
-}
