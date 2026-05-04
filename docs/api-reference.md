@@ -341,3 +341,7 @@ Initial release with:
 ## Changelog
 
 See [GitHub Releases](https://github.com/COGNIMANEU/pilot03-service-job-card-extractor/releases) for detailed changelog.
+
+---
+
+See also: [Architecture](architecture.md) | [User Guide](user-guide.md) | [Development](development.md) | [Troubleshooting](troubleshooting.md)
