@@ -45,13 +45,20 @@ detect_arch() {
 }
 
 # --- Package Manager Detection ---
+# On macOS, prefer Homebrew. On Linux, prefer the native system package manager
+# over Homebrew (Linuxbrew) so system dependencies install where the OS expects.
 detect_package_manager() {
+    local os="$1"
+    if [ "$os" = "macos" ]; then
+        if command -v brew &>/dev/null; then echo "brew"; else echo "unknown"; fi
+        return
+    fi
     if   command -v apt-get &>/dev/null; then echo "apt"
     elif command -v dnf     &>/dev/null; then echo "dnf"
     elif command -v yum     &>/dev/null; then echo "yum"
     elif command -v pacman  &>/dev/null; then echo "pacman"
-    elif command -v brew    &>/dev/null; then echo "brew"
     elif command -v zypper  &>/dev/null; then echo "zypper"
+    elif command -v brew    &>/dev/null; then echo "brew"
     else echo "unknown"
     fi
 }
@@ -79,7 +86,8 @@ install_deps() {
             brew install poppler || die "Failed to install poppler"
             ;;
         apt)
-            $sudo_cmd apt-get update -qq && $sudo_cmd apt-get install -y -qq poppler-utils || die "Failed to install poppler-utils"
+            $sudo_cmd apt-get update -qq || die "Failed to update apt package lists"
+            $sudo_cmd apt-get install -y -qq poppler-utils || die "Failed to install poppler-utils"
             ;;
         dnf|yum)
             $sudo_cmd "$pm" install -y -q poppler-utils || die "Failed to install poppler-utils"
@@ -186,7 +194,13 @@ main() {
 
     os=$(detect_os)
     arch=$(detect_arch)
-    pm=$(detect_package_manager)
+
+    if [ "$os" = "windows" ]; then
+        die "Windows is not supported by this script. Run the PowerShell installer instead:
+  irm https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.ps1 | iex"
+    fi
+
+    pm=$(detect_package_manager "$os")
     sudo_cmd=$(need_sudo)
 
     info "OS: $os | Arch: $arch | Package Manager: $pm"
