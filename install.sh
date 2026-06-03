@@ -9,9 +9,6 @@ set -euo pipefail
 
 # --- Configuration ---
 TOOL_NAME="job-card-extractor"
-REPO_OWNER="COGNIMANEU"
-REPO_NAME="pilot03-service-job-card-extractor"
-DEFAULT_BRANCH="main"
 PYTHON_MIN_VERSION="3.6"
 
 # --- Color Output ---
