@@ -1,154 +1,131 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================================================================
+# Job Card Extractor Installer
+# Extracts job numbers and operations from manufacturing job card PDFs
+# Usage: curl -sSL https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.sh | bash
+# ============================================================================
+
+# --- Configuration ---
 TOOL_NAME="job-card-extractor"
-TOOL_REPO="COGNIMANEU/pilot03-service-job-card-extractor"
+REPO_OWNER="COGNIMANEU"
+REPO_NAME="pilot03-service-job-card-extractor"
+DEFAULT_BRANCH="main"
 PYTHON_MIN_VERSION="3.6"
 
-info() { echo "[INFO]  $*"; }
-ok() { echo "[ OK ]  $*"; }
-warn() { echo "[WARN]  $*"; }
-err() { echo "[ERR]   $*"; }
-die() { err "$*"; exit 1; }
+# --- Color Output ---
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; NC='\033[0m'
 
+info()  { printf "${BLUE}[INFO]${NC}  %s\n" "$*"; }
+ok()    { printf "${GREEN}[ OK ]${NC}  %s\n" "$*"; }
+warn()  { printf "${YELLOW}[WARN]${NC}  %s\n" "$*"; }
+err()   { printf "${RED}[ERR ]${NC}  %s\n" "$*" >&2; }
+die()   { err "$@"; exit 1; }
+
+# --- OS Detection ---
 detect_os() {
-    case "${OSTYPE}" in
-        darwin*) echo "macos" ;;
-        linux*) echo "linux" ;;
-        msys*|cygwin*) echo "windows" ;;
-        *) echo "unknown" ;;
-    esac
-}
-
-detect_arch() {
-    case "$(uname -m)" in
-        x86_64) echo "x86_64" ;;
-        aarch64|arm64) echo "arm64" ;;
-        *) echo "unknown" ;;
-    esac
-}
-
-detect_package_manager() {
-    if command -v brew &>/dev/null; then
-        echo "brew"
-    elif command -v apt-get &>/dev/null; then
-        echo "apt"
-    elif command -v dnf &>/dev/null; then
-        echo "dnf"
-    elif command -v yum &>/dev/null; then
-        echo "yum"
-    elif command -v pacman &>/dev/null; then
-        echo "pacman"
-    elif command -v zypper &>/dev/null; then
-        echo "zypper"
-    else
-        echo "none"
-    fi
-}
-
-need_sudo() {
-    if [[ $EUID -eq 0 ]]; then
-        echo "false"
-    elif command -v sudo &>/dev/null; then
-        echo "true"
-    else
-        echo "false"
-    fi
-}
-
-install_deps() {
-    local os="$1"
-    local pkg_mgr="$2"
-    local with_sudo="$3"
-
-    info "Installing dependencies..."
-
-    local install_cmd=""
-    local pkgs=""
-
+    local os
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
     case "$os" in
-        macos)
-            if ! command -v brew &>/dev/null; then
-                die "Homebrew not found. Install from https://brew.sh"
-            fi
-            pkgs="poppler"
-            if [[ "$with_sudo" == "true" ]]; then
-                install_cmd="sudo brew install"
-            else
-                install_cmd="brew install"
-            fi
+        linux*)  echo "linux" ;;
+        darwin*) echo "macos" ;;
+        mingw*|msys*|cygwin*) echo "windows" ;;
+        *)       die "Unsupported operating system: $os" ;;
+    esac
+}
+
+# --- Architecture Detection ---
+detect_arch() {
+    local arch
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64|amd64)  echo "x86_64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        *)             die "Unsupported architecture: $arch" ;;
+    esac
+}
+
+# --- Package Manager Detection ---
+detect_package_manager() {
+    if   command -v apt-get &>/dev/null; then echo "apt"
+    elif command -v dnf     &>/dev/null; then echo "dnf"
+    elif command -v yum     &>/dev/null; then echo "yum"
+    elif command -v pacman  &>/dev/null; then echo "pacman"
+    elif command -v brew    &>/dev/null; then echo "brew"
+    elif command -v zypper  &>/dev/null; then echo "zypper"
+    else echo "unknown"
+    fi
+}
+
+# --- Sudo Detection ---
+need_sudo() {
+    if [ "$(id -u)" -ne 0 ]; then
+        if command -v sudo &>/dev/null; then
+            echo "sudo"
+        else
+            die "Root privileges required. Run as root or install sudo."
+        fi
+    else
+        echo ""
+    fi
+}
+
+# --- System Dependencies (Poppler) ---
+install_deps() {
+    local pm="$1" sudo_cmd="$2"
+    info "Installing system dependencies..."
+
+    case "$pm" in
+        brew)
+            brew install poppler || die "Failed to install poppler"
             ;;
-        linux)
-            pkgs="poppler-utils"
-            case "$pkg_mgr" in
-                apt)
-                    if [[ "$with_sudo" == "true" ]]; then
-                        install_cmd="sudo apt-get update && sudo apt-get install -y"
-                    else
-                        install_cmd="apt-get update && apt-get install -y"
-                    fi
-                    ;;
-                dnf|yum)
-                    if [[ "$with_sudo" == "true" ]]; then
-                        install_cmd="sudo $pkg_mgr install -y"
-                    else
-                        install_cmd="$pkg_mgr install -y"
-                    fi
-                    ;;
-                pacman)
-                    if [[ "$with_sudo" == "true" ]]; then
-                        install_cmd="sudo pacman -S --noconfirm"
-                    else
-                        install_cmd="pacman -S --noconfirm"
-                    fi
-                    ;;
-                zypper)
-                    if [[ "$with_sudo" == "true" ]]; then
-                        install_cmd="sudo zypper install -y"
-                    else
-                        install_cmd="zypper install -y"
-                    fi
-                    ;;
-                *)
-                    die "No supported package manager found"
-                    ;;
-            esac
+        apt)
+            $sudo_cmd apt-get update -qq && $sudo_cmd apt-get install -y -qq poppler-utils || die "Failed to install poppler-utils"
             ;;
-        windows)
-            warn "Windows detected. Use install.ps1 for PowerShell installation."
-            die "Use install.ps1 on Windows"
+        dnf|yum)
+            $sudo_cmd "$pm" install -y -q poppler-utils || die "Failed to install poppler-utils"
+            ;;
+        pacman)
+            $sudo_cmd pacman -Sy --noconfirm poppler || die "Failed to install poppler"
+            ;;
+        zypper)
+            $sudo_cmd zypper install -y poppler-tools || die "Failed to install poppler-tools"
             ;;
         *)
-            die "Unsupported OS: $os"
+            die "Unsupported package manager '$pm'. Install poppler manually: https://poppler.freedesktop.org/"
             ;;
     esac
 
-    if [[ -n "$install_cmd" ]]; then
-        info "Running: $install_cmd $pkgs"
-        eval "$install_cmd $pkgs" || die "Failed to install system dependencies"
-    fi
-
-    ok "Dependencies installed"
+    ok "System dependencies installed"
 }
 
+# --- Python Version Check ---
 check_python() {
     if command -v python3 &>/dev/null; then
         local version
         version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-        ok "Python $version found"
+        info "Python $version found"
+        if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,6) else 1)" 2>/dev/null; then
+            ok "Python $version meets minimum requirement ($PYTHON_MIN_VERSION+)"
+        else
+            die "Python 3.6+ required (found: $version)"
+        fi
     else
-        die "Python 3 not found. Please install Python $PYTHON_MIN_VERSION+"
+        die "Python 3 not found. Install from https://www.python.org/downloads/"
     fi
 }
 
-install_python_deps() {
-    info "Installing Python dependencies..."
+# --- Python Environment Setup ---
+install_job_card_extractor() {
+    info "Setting up Python virtual environment..."
 
     local venv_dir="${HOME}/.venv/${TOOL_NAME}"
     local pip_cmd
 
     if [[ -d "$venv_dir" ]]; then
-        info "Using existing virtual environment"
+        info "Using existing virtual environment at $venv_dir"
         pip_cmd="${venv_dir}/bin/pip"
     else
         info "Creating virtual environment at $venv_dir"
@@ -156,77 +133,74 @@ install_python_deps() {
         pip_cmd="${venv_dir}/bin/pip"
     fi
 
+    info "Upgrading pip..."
     "$pip_cmd" install --upgrade pip >/dev/null 2>&1 || die "Failed to upgrade pip"
 
-    local deps=(
-        "numpy>=1.19.0"
-        "opencv-python>=4.5.0"
-        "Pillow>=8.0.0"
-        "pdf2image>=1.16.0"
-        "pyzbar>=0.1.8"
-        "easyocr>=1.4.1"
-        "torch>=1.7.0"
-        "torchvision>=0.8.0"
-    )
-
-    info "Installing ${#deps[@]} packages..."
-    "$pip_cmd" install "${deps[@]}" || die "Failed to install Python dependencies"
+    info "Installing Python packages..."
+    "$pip_cmd" install \
+        "numpy>=1.19.0" \
+        "opencv-python>=4.5.0" \
+        "Pillow>=8.0.0" \
+        "pdf2image>=1.16.0" \
+        "pyzbar>=0.1.8" \
+        "easyocr>=1.4.1" \
+        "torch>=1.7.0" \
+        "torchvision>=0.8.0" \
+        || die "Failed to install Python dependencies"
 
     ok "Python dependencies installed"
 
-    if [[ -d "$venv_dir" ]]; then
-        echo ""
-        echo "============================================"
-        echo "To activate the virtual environment, run:"
-        echo "  source $venv_dir/bin/activate"
-        echo "============================================"
-    fi
+    cat << ACTIVATE_HELP
+
+============================================
+To activate the virtual environment, run:
+
+  source ${venv_dir}/bin/activate
+
+Then use the tool:
+
+  python job_card_extractor.py <input.pdf> -o <output_dir>
+============================================
+ACTIVATE_HELP
 }
 
+# --- Verification ---
 verify_installation() {
     info "Verifying installation..."
 
     if command -v pdfinfo &>/dev/null; then
-        ok "poppler installed"
+        ok "Poppler installed"
     else
-        die "poppler not found in PATH"
+        die "Poppler not found in PATH. Check your package manager installation."
     fi
 
-    if python3 -c "import cv2; import easyocr; import pyzbar; from pdf2image import convert_from_path" 2>/dev/null; then
-        ok "Python packages installed"
+    if python3 -c "import cv2, easyocr, pyzbar, pdf2image" 2>/dev/null; then
+        ok "Python packages importable"
     else
-        die "Python packages not properly installed"
+        die "Python packages not properly installed. Activate the venv and check with: pip list"
     fi
 
-    ok "Verification complete"
+    ok "Installation verified successfully"
 }
 
+# --- Main ---
 main() {
-    local os
-    local arch
-    local pkg_mgr
-    local with_sudo
+    local os arch pm sudo_cmd
 
     os=$(detect_os)
     arch=$(detect_arch)
-    pkg_mgr=$(detect_package_manager)
-    with_sudo=$(need_sudo)
+    pm=$(detect_package_manager)
+    sudo_cmd=$(need_sudo)
 
-    info "OS: $os | Arch: $arch | Package Manager: $pkg_mgr"
+    info "OS: $os | Arch: $arch | Package Manager: $pm"
 
     check_python
-    install_deps "$os" "$pkg_mgr" "$with_sudo"
-    install_python_deps
+    install_deps "$pm" "$sudo_cmd"
+    install_job_card_extractor
     verify_installation
 
     echo ""
-    echo "============================================"
     ok "Installation complete!"
-    echo ""
-    echo "Usage:"
-    echo "  source ~/.venv/${TOOL_NAME}/bin/activate"
-    echo "  python job_card_extractor.py <input.pdf> -o <output_dir>"
-    echo "============================================"
 }
 
 main "$@"

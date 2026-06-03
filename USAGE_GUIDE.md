@@ -1,63 +1,73 @@
-# Job Card Extractor - Usage Guide
+# Job-Card-Extractor Usage Guide
 
-## Quick Install
+*Generated on 2026-06-03 12:25:09*
 
-```bash
-curl -sSL https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.sh | bash
-```
+---
 
-## Requirements
+## Installation Summary
 
-- Python 3.6+
-- Poppler (installed automatically by install.sh)
-- macOS, Linux, or Windows (PowerShell)
+**Platform:** macOS
+**Package manager used:** brew
 
-## Setup
+---
 
-After running the install script:
+## Quick Start
 
-```bash
-# Activate the virtual environment
-source ~/.venv/job-card-extractor/bin/activate
-```
-
-## Basic Usage
+### Verify Installation
 
 ```bash
-# Process a PDF file
-python job_card_extractor.py samples/example-01.pdf -o output
-
-# With multiple languages
-python job_card_extractor.py input.pdf -o output -l en fr
-
-# Fast mode (lower quality, faster processing)
-python job_card_extractor.py input.pdf -o output --fast-mode
+job-card-extractor --version
 ```
 
-## Output
-
-The tool generates:
-- `{filename}_job_and_operations.json` - Main extraction results
-- `{filename}_raw.json` - Raw extracted data (optional)
-- `annotated/` - Debug images showing detected regions
-
-## Deactivate
+### Basic Usage
 
 ```bash
-deactivate
+# Check job-card-extractor help
+job-card-extractor --help
 ```
+
+---
+
+## Platform-Specific Notes
+
+---
 
 ## Troubleshooting
 
-See [Troubleshooting Guide](docs/troubleshooting.md) for common issues.
+### Common Issues
 
-## Uninstall
+**Command not found:** Ensure `job-card-extractor` is in your PATH. You may need to:
+- Restart your terminal/shell
+- Source your profile: `source ~/.bashrc` or `source ~/.zshrc`
+- Add the installation directory to your PATH
+
+**Permission denied:** Try running with elevated privileges:
+- Linux/macOS: `sudo <command>`
+- Windows: Run as Administrator
+
+**Package not working correctly:** Try reinstalling:
+```bash
+brew reinstall job-card-extractor
+```
+
+---
+
+## Uninstallation
+
+To remove job-card-extractor:
 
 ```bash
-# Remove virtual environment
-rm -rf ~/.venv/job-card-extractor
-
-# Remove poppler (optional)
-brew uninstall poppler        # macOS
-sudo apt-get remove poppler-utils  # Linux
+brew uninstall job-card-extractor
 ```
+
+---
+
+## Additional Resources
+
+- Official documentation: Search for "job-card-extractor documentation"
+- Community forums: Search for "job-card-extractor forum" or "job-card-extractor community"
+- Issue tracker: Search for "job-card-extractor github" or "job-card-extractor issues"
+
+---
+
+*This guide was automatically generated. Some commands may need adjustment for your specific setup.*

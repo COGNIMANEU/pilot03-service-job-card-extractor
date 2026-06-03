@@ -26,7 +26,27 @@ Use this tool when you need to:
 
 ## Installation
 
-### 1. Install system dependency (Poppler)
+### Quick Install (one command)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.sh | bash
+```
+
+Or with wget:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.ps1 | iex
+```
+
+### Manual Installation
+
+#### 1. Install system dependency (Poppler)
 
 ```bash
 # macOS
