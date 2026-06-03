@@ -1,34 +1,68 @@
-# Job-Card-Extractor Usage Guide
+# Job Card Extractor — Usage Guide
 
-*Generated on 2026-06-03 12:25:09*
+CLI tool that extracts job numbers and operations from manufacturing job card
+PDFs using OCR and barcode detection.
 
 ---
 
-## Installation Summary
+## Requirements
 
-**Platform:** macOS
-**Package manager used:** brew
+- Python 3.6+
+- Poppler (installed automatically by `install.sh`)
+- macOS, Linux, or Windows (PowerShell — see `install.ps1`)
+
+---
+
+## Installation
+
+```bash
+curl -sSL https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.sh | bash
+```
+
+The installer creates a virtual environment at `~/.venv/job-card-extractor` and
+installs the system dependency (Poppler) and the Python packages.
 
 ---
 
 ## Quick Start
 
-### Verify Installation
+### Activate the virtual environment
 
 ```bash
-job-card-extractor --version
+source ~/.venv/job-card-extractor/bin/activate
 ```
 
-### Basic Usage
+### Verify the installation
 
 ```bash
-# Check job-card-extractor help
-job-card-extractor --help
+python job_card_extractor.py --version
+```
+
+### Basic usage
+
+```bash
+# Process a PDF file
+python job_card_extractor.py samples/example-01.pdf -o output
+
+# With multiple OCR languages
+python job_card_extractor.py input.pdf -o output -l en fr
+
+# Fast mode (lower quality, faster processing)
+python job_card_extractor.py input.pdf -o output --fast-mode
+
+# Show all options
+python job_card_extractor.py --help
 ```
 
 ---
 
-## Platform-Specific Notes
+## Output
+
+The tool generates:
+
+- `{filename}_job_and_operations.json` — main extraction results
+- `{filename}_raw.json` — raw extracted data (enable with `--raw`)
+- `annotated/` — debug images showing detected regions (suppress with `--no-annotated`)
 
 ---
 
@@ -36,38 +70,43 @@ job-card-extractor --help
 
 ### Common Issues
 
-**Command not found:** Ensure `job-card-extractor` is in your PATH. You may need to:
-- Restart your terminal/shell
-- Source your profile: `source ~/.bashrc` or `source ~/.zshrc`
-- Add the installation directory to your PATH
+**`ModuleNotFoundError` (e.g. `No module named 'pdf2image'`):** the virtual
+environment is not active. Run `source ~/.venv/job-card-extractor/bin/activate`
+first, then re-run the command.
 
-**Permission denied:** Try running with elevated privileges:
-- Linux/macOS: `sudo <command>`
-- Windows: Run as Administrator
+**`Poppler not found in PATH` / `pdfinfo` missing:** Poppler is not installed.
+Reinstall it:
 
-**Package not working correctly:** Try reinstalling:
-```bash
-brew reinstall job-card-extractor
-```
+- macOS: `brew install poppler`
+- Debian/Ubuntu: `sudo apt-get install poppler-utils`
+- Fedora/RHEL: `sudo dnf install poppler-utils`
+
+**First run is slow:** EasyOCR downloads its language models (~100MB+) on first
+use. Subsequent runs reuse the cached models.
+
+**Permission denied during install:** the installer uses `sudo` for the system
+package step on Linux. Run it as a user with `sudo` access, or install Poppler
+manually first.
 
 ---
 
 ## Uninstallation
 
-To remove job-card-extractor:
+Remove the virtual environment, and (optionally) Poppler:
 
 ```bash
-brew uninstall job-card-extractor
+# Remove the virtual environment
+rm -rf ~/.venv/job-card-extractor
+
+# Remove Poppler (optional)
+brew uninstall poppler              # macOS
+sudo apt-get remove poppler-utils   # Debian/Ubuntu
 ```
 
 ---
 
 ## Additional Resources
 
-- Official documentation: Search for "job-card-extractor documentation"
-- Community forums: Search for "job-card-extractor forum" or "job-card-extractor community"
-- Issue tracker: Search for "job-card-extractor github" or "job-card-extractor issues"
-
----
-
-*This guide was automatically generated. Some commands may need adjustment for your specific setup.*
+- Repository: https://github.com/COGNIMANEU/pilot03-service-job-card-extractor
+- Issue tracker: https://github.com/COGNIMANEU/pilot03-service-job-card-extractor/issues
+- See `README.md` for the full feature list and programmatic use.

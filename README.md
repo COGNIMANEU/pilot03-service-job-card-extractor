@@ -60,7 +60,7 @@ apt-get install poppler-utils
 
 Windows: Download from https://github.com/oschwartz10612/poppler-windows/releases/
 
-### 2. Clone and set up Python environment
+#### 2. Clone and set up Python environment
 
 ```bash
 git clone https://github.com/COGNIMANEU/pilot03-service-job-card-extractor
@@ -84,7 +84,7 @@ pip install -r requirements.txt
 
 First run downloads EasyOCR language models (~100MB). Ensure internet connectivity.
 
-### 3. Verify installation
+#### 3. Verify installation
 
 ```bash
 python job_card_extractor.py --version
