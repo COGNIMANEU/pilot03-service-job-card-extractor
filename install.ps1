@@ -1,5 +1,6 @@
 # Job Card Extractor - Windows Installation Script
-# Run with: irm https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.ps1 | iex
+# Run with:
+#   irm https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 

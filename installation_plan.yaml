@@ -11,7 +11,7 @@ phases:
       - action: detect-package-manager
         description: Detect available package manager
       - action: install-poppler
-        description: Install poppler-utils (required for pdf2image)
+        description: Install poppler/poppler-utils (required for pdf2image)
 
   - id: python-env
     name: Setup Python environment
@@ -19,17 +19,17 @@ phases:
       - action: check-python
         description: Verify Python 3.6+ is available
       - action: create-venv
-        description: Create virtual environment
+        description: Create virtual environment at ~/.venv/job-card-extractor
       - action: install-deps
-        description: Install Python dependencies from requirements.txt
+        description: Install Python dependencies (numpy, opencv, Pillow, pdf2image, pyzbar, easyocr, torch, torchvision)
 
   - id: verify
     name: Verify installation
     steps:
       - action: check-poppler
-        description: Verify poppler is in PATH
+        description: Verify poppler is in PATH (pdfinfo command)
       - action: check-python-packages
-        description: Verify all Python packages are importable
+        description: Verify all Python packages are importable (cv2, easyocr, pyzbar, pdf2image)
 
 rollback:
   - Remove virtual environment: rm -rf ~/.venv/job-card-extractor
@@ -37,4 +37,15 @@ rollback:
 
 verification:
   - Command: pdfinfo -v
-  - Python: python3 -c "import easyocr; print('EasyOCR ready')"
+  - Python: python3 -c "import cv2, easyocr, pyzbar, pdf2image; print('All packages ready')"
+
+platform_support:
+  macos:
+    package_manager: brew
+    deps: poppler
+  linux:
+    package_manager: apt/dnf/yum/pacman/zypper
+    deps: poppler-utils / poppler / poppler-tools
+  windows:
+    package_manager: winget/choco (manual Poppler install documented)
+    script: install.ps1

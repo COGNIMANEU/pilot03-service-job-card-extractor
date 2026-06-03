@@ -76,3 +76,4 @@ debug_areas/
 .venv
 samples/
 output/
+env_info.json
