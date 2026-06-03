@@ -64,15 +64,20 @@ detect_package_manager() {
 }
 
 # --- Sudo Detection ---
+# Sets the SUDO_CMD global to "sudo" or "". Call this directly (not via command
+# substitution) so that a failure here can `die` and abort the whole script;
+# inside $(...) the exit would only terminate the subshell and execution would
+# silently continue with an empty sudo command.
+SUDO_CMD=""
 need_sudo() {
     if [ "$(id -u)" -ne 0 ]; then
         if command -v sudo &>/dev/null; then
-            echo "sudo"
+            SUDO_CMD="sudo"
         else
             die "Root privileges required. Run as root or install sudo."
         fi
     else
-        echo ""
+        SUDO_CMD=""
     fi
 }
 
@@ -190,7 +195,7 @@ verify_installation() {
 
 # --- Main ---
 main() {
-    local os arch pm sudo_cmd
+    local os arch pm
 
     os=$(detect_os)
     arch=$(detect_arch)
@@ -201,12 +206,12 @@ main() {
     fi
 
     pm=$(detect_package_manager "$os")
-    sudo_cmd=$(need_sudo)
+    need_sudo  # sets SUDO_CMD; dies if root is required but sudo is unavailable
 
     info "OS: $os | Arch: $arch | Package Manager: $pm"
 
     check_python
-    install_deps "$pm" "$sudo_cmd"
+    install_deps "$pm" "$SUDO_CMD"
     install_job_card_extractor
     verify_installation
 
