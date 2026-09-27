@@ -1,33 +1,15 @@
-# Job Card Extractor
+@AGENTS.md
 
-CLI tool that extracts job numbers and operations from manufacturing job card PDFs using OCR and barcode detection.
+# Job Card Extractor — Claude environment
 
-## Tech Stack
-- Python 3.12
-- OpenCV, EasyOCR, PyZbar, pdf2image
-- Requires poppler system dependency
-
-## Project Structure
-- `job_card_extractor.py` - Main extraction logic (single file)
-- `tests/` - Unit tests
-- `samples/` - Example PDF files for testing
-
-## Development Commands
-```bash
-# Activate venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run extractor
-python job_card_extractor.py samples/example-01.pdf -o output
-
-# Run tests
-pytest tests/
-```
+## Commands
+- Use Python 3.11 (accepted by `install.sh`'s Python 3.6+ check). The MAS server invokes this repository's `venv/bin/python`; do not create `.venv/` for that integration.
+- From this repository root, create the environment with `python3.11 -m venv venv` and install dependencies with `venv/bin/python -m pip install -r requirements.txt pytest`.
+- Run all tests with `venv/bin/python -m pytest tests/` (collects the repository's JCE tests).
+- Run one test module with `venv/bin/python -m pytest tests/test_version.py`.
+- Check the CLI with `venv/bin/python job_card_extractor.py --version`.
 
 ## Gotchas
-- Poppler must be installed (`brew install poppler` on macOS, `apt-get install poppler-utils` on Linux)
-- First run downloads EasyOCR language models (~100MB+)
-- Processing is CPU-intensive; use `--fast-mode` for quicker but lower quality results
+- PDF conversion needs Poppler on the system (`brew install poppler` on macOS; `apt-get install poppler-utils` on Debian/Ubuntu).
+- The first real OCR run downloads EasyOCR language models; the unit tests mock OCR and PDF processing.
+- `install.sh` installs into `$HOME/.venv/job-card-extractor`, not the MAS server's repo-local `venv/`; use the commands above for server integration.
