@@ -13,10 +13,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import job_card_extractor
 
 class TestProcessingFunctions(unittest.TestCase):
+    @patch('pdf2image.convert_from_path')
     @patch('os.path.exists')
     @patch('job_card_extractor.extract_areas_from_pdf')
     @patch('job_card_extractor.extract_job_and_operations')
-    def test_process_pdf_document(self, mock_extract_job, mock_extract_areas, mock_exists):
+    def test_process_pdf_document(self, mock_extract_job, mock_extract_areas, mock_exists, mock_convert):
         """Test the main PDF processing function"""
         # Mock file existence check
         mock_exists.return_value = True
@@ -24,6 +25,8 @@ class TestProcessingFunctions(unittest.TestCase):
         # Mock the extraction functions
         mock_areas_result = ([{'page': 1, 'ocr_text': 'test'}], [MagicMock()])
         mock_extract_areas.return_value = mock_areas_result
+        # process_pdf_document converts again for logging when output_dir is set.
+        mock_convert.return_value = [MagicMock(), MagicMock()]
 
         mock_job_result = {'job_number': 'J12345', 'operations': [{'op_number': '10', 'op_name': 'TEST'}]}
         mock_extract_job.return_value = mock_job_result
@@ -47,13 +50,22 @@ class TestProcessingFunctions(unittest.TestCase):
                 )
 
                 # Verify results
-                self.assertEqual(result, mock_job_result)
+                self.assertEqual(result['job_number'], 'J12345')
+                self.assertEqual(result['operations'], mock_job_result['operations'])
+                self.assertEqual(result['extraction_metadata']['document_info']['total_pages'], 2)
+                self.assertEqual(result['extraction_metadata']['document_info']['total_areas'], 1)
+                mock_convert.assert_called_once_with('test.pdf')
 
                 # Verify directory creation
                 mock_makedirs.assert_called()
 
-                # Verify file operations (raw and clean outputs)
-                self.assertEqual(mock_open_file.call_count, 2)
+                # Verify both JSON outputs; the logger also opens its own file.
+                mock_open_file.assert_any_call(
+                    os.path.join(temp_dir, 'test_raw.json'), 'w', encoding='utf-8'
+                )
+                mock_open_file.assert_any_call(
+                    os.path.join(temp_dir, 'test_job_and_operations.json'), 'w', encoding='utf-8'
+                )
 
                 # Verify JSON dumps
                 self.assertEqual(mock_json_dump.call_count, 2)
@@ -70,6 +82,11 @@ class TestProcessingFunctions(unittest.TestCase):
         # Test without output directory - with fresh mocks
         mock_extract_areas.reset_mock()
         mock_extract_job.reset_mock()
+        # The first call adds metadata to the returned dictionary; use fresh data.
+        mock_extract_job.return_value = {
+            'job_number': 'J12345',
+            'operations': [{'op_number': '10', 'op_name': 'TEST'}]
+        }
 
         # Use a separate patch for this test case
         with patch('builtins.open', new_callable=mock_open) as mock_open_file_2:
@@ -79,9 +96,13 @@ class TestProcessingFunctions(unittest.TestCase):
             )
 
             # Verify results without output dir
-            self.assertEqual(result, mock_job_result)
-            # No files should be opened when output_dir is None
+            self.assertEqual(result, {
+                'job_number': 'J12345',
+                'operations': [{'op_number': '10', 'op_name': 'TEST'}]
+            })
+            # No files should be opened or PDF converted for logging without output_dir.
             mock_open_file_2.assert_not_called()
+            mock_convert.assert_called_once_with('test.pdf')
 
     def test_main_function_with_version_flag(self):
         """Test the main function with version flag"""
@@ -143,48 +164,39 @@ class TestProcessingFunctions(unittest.TestCase):
             mock_exit.assert_called_once_with(1)
 
     def test_main_function_with_pdf_files(self):
-        """Test the main function with PDF files provided"""
-        with patch('argparse.ArgumentParser.parse_args') as mock_parse_args, \
-             patch('job_card_extractor.process_pdf_document') as mock_process:
-
-            mock_args = MagicMock()
-            mock_args.pdf_files = ['test1.pdf', 'test2.pdf']
-            mock_args.output_dir = 'output'
-            mock_args.lang = ['en']
-            mock_args.no_raw = False
-            mock_args.no_annotated = True
-            mock_args.no_parallel = False
-            mock_args.fast_mode = False
-            mock_args.version = False
-            mock_parse_args.return_value = mock_args
-
-            # Mock process_pdf_document to return a result
+        """Test actual CLI parsing for explicit overrides and default processing flags."""
+        with patch('job_card_extractor.process_pdf_document') as mock_process:
             mock_process.return_value = {'job_number': 'J12345', 'operations': []}
 
-            # Call main function
-            job_card_extractor.main()
+            with patch('sys.argv', [
+                'job_card_extractor.py', '--raw', '--parallel', '--no-annotated',
+                '-o', 'output', 'test1.pdf', 'test2.pdf'
+            ]):
+                job_card_extractor.main()
 
-            # Verify process_pdf_document was called for each PDF file
             self.assertEqual(mock_process.call_count, 2)
-            
-            # Verify calls with correct arguments including new parameters
-            mock_process.assert_any_call(
+            for pdf_file in ('test1.pdf', 'test2.pdf'):
+                mock_process.assert_any_call(
+                    pdf_file,
+                    output_dir='output',
+                    lang_list=['en'],
+                    save_raw=True,
+                    save_annotated=False,
+                    parallel_processing=True,
+                    enhance_quality=True
+                )
+
+            mock_process.reset_mock()
+            with patch('sys.argv', ['job_card_extractor.py', '-o', 'output', 'test1.pdf']):
+                job_card_extractor.main()
+
+            mock_process.assert_called_once_with(
                 'test1.pdf',
                 output_dir='output',
                 lang_list=['en'],
-                save_raw=True,
-                save_annotated=False,
-                parallel_processing=True,
-                enhance_quality=True
-            )
-
-            mock_process.assert_any_call(
-                'test2.pdf',
-                output_dir='output',
-                lang_list=['en'],
-                save_raw=True,
-                save_annotated=False,
-                parallel_processing=True,
+                save_raw=False,
+                save_annotated=True,
+                parallel_processing=False,
                 enhance_quality=True
             )
 
