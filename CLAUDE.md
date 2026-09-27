@@ -12,4 +12,4 @@
 ## Gotchas
 - PDF conversion needs Poppler on the system (`brew install poppler` on macOS; `apt-get install poppler-utils` on Debian/Ubuntu).
 - The first real OCR run downloads EasyOCR language models; the unit tests mock OCR and PDF processing.
-- `install.sh` installs into `$HOME/.venv/job-card-extractor`, not the MAS server's repo-local `venv/`; use the commands above for server integration.
+- `install.sh` and `install.ps1` create the extractor checkout's `venv/`, matching the MAS server; piped installers clone into the current directory if no checkout is present.

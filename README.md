@@ -38,6 +38,8 @@ Or with wget:
 wget -qO- https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.sh | bash
 ```
 
+The one-command installer uses the current extractor checkout if run there; otherwise it clones into `./pilot03-service-job-card-extractor/`. It creates `venv/` **inside that checkout**, the same path the MAS server uses. Run the commands below from the checkout after installation (`cd pilot03-service-job-card-extractor` if it was cloned).
+
 ### Windows (PowerShell)
 
 ```powershell
@@ -71,18 +73,18 @@ cd pilot03-service-job-card-extractor
 ```
 
 ```bash
-python -m venv .venv
+python -m venv venv
 ```
 
 ```bash
-source .venv/bin/activate
+source venv/bin/activate
 ```
 
 ```bash
 pip install -r requirements.txt
 ```
 
-First run downloads EasyOCR language models (~100MB). Ensure internet connectivity.
+The virtual environment is always `<extractor checkout>/venv/` (including when the checkout is a MAS submodule). First run downloads EasyOCR language models (~100MB). Ensure internet connectivity.
 
 #### 3. Verify installation
 
