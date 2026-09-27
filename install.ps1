@@ -4,8 +4,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$TOOL_NAME = "job-card-extractor"
-$REPO = "COGNIMANEU/pilot03-service-job-card-extractor"
+$REPO_URL = "https://github.com/COGNIMANEU/pilot03-service-job-card-extractor.git"
 
 function Write-Info { param($m) Write-Host "[INFO]  $m" -ForegroundColor Cyan }
 function Write-Ok { param($m) Write-Host "[ OK ]  $m" -ForegroundColor Green }
@@ -34,36 +33,44 @@ if (-not $pythonVersion) {
     Write-Err "Python 3.6+ not found. Install from https://www.python.org/downloads/"
 }
 Write-Info "Python $pythonVersion found"
+$pythonCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "python3" }
 
-# Create virtual environment
-$venvPath = "$env:USERPROFILE\.venv\$TOOL_NAME"
-if (Test-Path $venvPath) {
-    Write-Info "Using existing virtual environment"
+# When piped via iex there is no script directory. Reuse the current checkout,
+# or clone into a predictable child of the caller's current directory.
+if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "job_card_extractor.py"))) {
+    $checkout = $PSScriptRoot
+}
+elseif (Test-Path (Join-Path (Get-Location) "job_card_extractor.py")) {
+    $checkout = (Get-Location).Path
 }
 else {
-    Write-Info "Creating virtual environment at $venvPath"
-    python -m venv $venvPath
+    $checkout = Join-Path (Get-Location) "pilot03-service-job-card-extractor"
+    if (-not (Test-Path $checkout)) {
+        git clone $REPO_URL $checkout
+        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to clone the extractor" }
+    }
 }
-$pip = "$venvPath\Scripts\pip"
+if (-not (Test-Path (Join-Path $checkout "job_card_extractor.py")) -or
+    -not (Test-Path (Join-Path $checkout "requirements.txt"))) {
+    Write-Err "Extractor checkout incomplete at $checkout"
+}
 
-# Upgrade pip
+$venvPath = Join-Path $checkout "venv"
+if (-not (Test-Path $venvPath)) {
+    Write-Info "Creating virtual environment at $venvPath"
+    & $pythonCmd -m venv $venvPath
+    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to create virtual environment" }
+}
+$venvPython = Join-Path $venvPath "Scripts\python.exe"
+if (-not (Test-Path $venvPython)) { Write-Err "Virtual environment missing Python at $venvPython" }
+
 Write-Info "Upgrading pip..."
-& $pip install --upgrade pip | Out-Null
-
-# Install dependencies
-$deps = @(
-    "numpy>=1.19.0",
-    "opencv-python>=4.5.0",
-    "Pillow>=8.0.0",
-    "pdf2image>=1.16.0",
-    "pyzbar>=0.1.8",
-    "easyocr>=1.4.1",
-    "torch>=1.7.0",
-    "torchvision>=0.8.0"
-)
+& $venvPython -m pip install --upgrade pip | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Err "Failed to upgrade pip" }
 
 Write-Info "Installing Python packages..."
-& $pip install $deps | Out-Null
+& $venvPython -m pip install -r (Join-Path $checkout "requirements.txt") | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Err "Failed to install Python dependencies" }
 
 Write-Ok "Installation complete!"
 Write-Host ""
@@ -71,4 +78,4 @@ Write-Host "To activate the virtual environment, run:"
 Write-Host "  $venvPath\Scripts\Activate.ps1"
 Write-Host ""
 Write-Host "Then run:"
-Write-Host "  python job_card_extractor.py <input.pdf> -o <output_dir>"
+Write-Host "  python $checkout\job_card_extractor.py <input.pdf> -o <output_dir>"

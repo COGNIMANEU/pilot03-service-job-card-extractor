@@ -8,7 +8,7 @@ set -euo pipefail
 # ============================================================================
 
 # --- Configuration ---
-TOOL_NAME="job-card-extractor"
+REPO_URL="https://github.com/COGNIMANEU/pilot03-service-job-card-extractor.git"
 PYTHON_MIN_VERSION="3.6"
 
 # --- Color Output ---
@@ -127,36 +127,44 @@ check_python() {
     fi
 }
 
+# A downloaded script has no checkout path; clone into the caller's directory.
+# A local invocation instead uses the checkout containing the script.
+resolve_checkout() {
+    local script_dir="" checkout
+    if [[ -f "${BASH_SOURCE[0]-}" ]]; then
+        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    fi
+    if [[ -n "$script_dir" && -f "$script_dir/job_card_extractor.py" ]]; then
+        checkout="$script_dir"
+    elif [[ -f "$PWD/job_card_extractor.py" ]]; then
+        checkout="$PWD"
+    else
+        checkout="$PWD/pilot03-service-job-card-extractor"
+        if [[ ! -e "$checkout" ]]; then
+            command -v git &>/dev/null || die "Git is required to download the extractor"
+            git clone "$REPO_URL" "$checkout" || die "Failed to clone the extractor"
+        fi
+    fi
+    [[ -f "$checkout/job_card_extractor.py" && -f "$checkout/requirements.txt" ]] ||
+        die "Extractor checkout incomplete at $checkout"
+    printf '%s\n' "$checkout"
+}
+
 # --- Python Environment Setup ---
 install_job_card_extractor() {
-    info "Setting up Python virtual environment..."
+    local checkout="$1" venv_dir="$1/venv"
+    info "Setting up Python virtual environment at $venv_dir..."
 
-    local venv_dir="${HOME}/.venv/${TOOL_NAME}"
-    local pip_cmd
-
-    if [[ -d "$venv_dir" ]]; then
-        info "Using existing virtual environment at $venv_dir"
-        pip_cmd="${venv_dir}/bin/pip"
-    else
-        info "Creating virtual environment at $venv_dir"
+    if [[ ! -d "$venv_dir" ]]; then
         python3 -m venv "$venv_dir" || die "Failed to create virtual environment"
-        pip_cmd="${venv_dir}/bin/pip"
     fi
+    [[ -x "$venv_dir/bin/python" ]] || die "Virtual environment missing Python at $venv_dir/bin/python"
 
     info "Upgrading pip..."
-    "$pip_cmd" install --upgrade pip >/dev/null 2>&1 || die "Failed to upgrade pip"
+    "$venv_dir/bin/python" -m pip install --upgrade pip >/dev/null 2>&1 || die "Failed to upgrade pip"
 
     info "Installing Python packages..."
-    "$pip_cmd" install \
-        "numpy>=1.19.0" \
-        "opencv-python>=4.5.0" \
-        "Pillow>=8.0.0" \
-        "pdf2image>=1.16.0" \
-        "pyzbar>=0.1.8" \
-        "easyocr>=1.4.1" \
-        "torch>=1.7.0" \
-        "torchvision>=0.8.0" \
-        || die "Failed to install Python dependencies"
+    "$venv_dir/bin/python" -m pip install -r "$checkout/requirements.txt" || die "Failed to install Python dependencies"
 
     ok "Python dependencies installed"
 
@@ -169,13 +177,14 @@ To activate the virtual environment, run:
 
 Then use the tool:
 
-  python job_card_extractor.py <input.pdf> -o <output_dir>
+  python ${checkout}/job_card_extractor.py <input.pdf> -o <output_dir>
 ============================================
 ACTIVATE_HELP
 }
 
 # --- Verification ---
 verify_installation() {
+    local checkout="$1"
     info "Verifying installation..."
 
     if command -v pdfinfo &>/dev/null; then
@@ -184,7 +193,7 @@ verify_installation() {
         die "Poppler not found in PATH. Check your package manager installation."
     fi
 
-    if python3 -c "import cv2, easyocr, pyzbar, pdf2image" 2>/dev/null; then
+    if "$checkout/venv/bin/python" -c "import cv2, easyocr, pyzbar, pdf2image" 2>/dev/null; then
         ok "Python packages importable"
     else
         die "Python packages not properly installed. Activate the venv and check with: pip list"
@@ -195,7 +204,7 @@ verify_installation() {
 
 # --- Main ---
 main() {
-    local os arch pm
+    local os arch pm checkout
 
     os=$(detect_os)
     arch=$(detect_arch)
@@ -211,12 +220,15 @@ main() {
     info "OS: $os | Arch: $arch | Package Manager: $pm"
 
     check_python
+    checkout=$(resolve_checkout)
     install_deps "$pm" "$SUDO_CMD"
-    install_job_card_extractor
-    verify_installation
+    install_job_card_extractor "$checkout"
+    verify_installation "$checkout"
 
     echo ""
     ok "Installation complete!"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]-}" == "$0" || ! -f "${BASH_SOURCE[0]-}" ]]; then
+    main "$@"
+fi
