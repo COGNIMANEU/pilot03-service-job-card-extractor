@@ -2,10 +2,8 @@
 import unittest
 import sys
 import os
-import json
 import argparse
 import tempfile
-from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 
 # Add the parent directory to the path so we can import job_card_extractor

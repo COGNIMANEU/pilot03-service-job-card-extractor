@@ -38,7 +38,7 @@ class TestOCRFunctions(unittest.TestCase):
         mock_resize.return_value = np.zeros((600, 800), dtype=np.uint8)
 
         # Call function
-        result = job_card_extractor.preprocess_image_for_ocr(crop)
+        job_card_extractor.preprocess_image_for_ocr(crop)
 
         # Verify calls
         mock_bilateral.assert_called_once()

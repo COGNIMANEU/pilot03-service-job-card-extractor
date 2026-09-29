@@ -2,8 +2,6 @@
 import unittest
 import sys
 import os
-import json
-from unittest.mock import patch, MagicMock, mock_open
 
 # Add the parent directory to the path so we can import job_card_extractor
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
