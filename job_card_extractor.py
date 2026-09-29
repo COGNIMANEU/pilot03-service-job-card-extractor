@@ -28,7 +28,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 from functools import lru_cache
 import time
-from typing import List, Dict, Tuple, Optional
 import logging
 from datetime import datetime
 
@@ -1070,7 +1069,7 @@ def extract_operations(json_data, logger=None):
                         
                         # Setup operation logger and log extraction
                         if logger:
-                            op_logger = logger.setup_operation_logger(op_number, op_name)
+                            logger.setup_operation_logger(op_number, op_name)
                             logger.log_operation_patterns(op_number, patterns_tried, successful_pattern)
                             logger.log_operation(op_number, "info", f"Operation found in area {area_idx} on page {page}")
                             logger.log_operation(op_number, "info", f"Raw operation name: '{op_name_raw}'")
