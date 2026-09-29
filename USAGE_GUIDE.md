@@ -7,7 +7,7 @@ PDFs using OCR and barcode detection.
 
 ## Requirements
 
-- Python 3.6+
+- Python 3.13
 - Poppler (installed automatically by `install.sh`)
 - macOS, Linux, or Windows (PowerShell — see `install.ps1`)
 

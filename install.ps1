@@ -30,9 +30,12 @@ Write-Info "Installing Job Card Extractor..."
 # Check Python
 $pythonVersion = Get-PythonVersion
 if (-not $pythonVersion) {
-    Write-Err "Python 3.6+ not found. Install from https://www.python.org/downloads/"
+    Write-Err "Python 3.13+ not found. Install from https://www.python.org/downloads/"
 }
 Write-Info "Python $pythonVersion found"
+if ([version]$pythonVersion -lt [version]"3.13") {
+    Write-Err "Python 3.13+ required (found: $pythonVersion)"
+}
 $pythonCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "python3" }
 
 # When piped via iex there is no script directory. Reuse the current checkout,
@@ -69,7 +72,13 @@ Write-Info "Upgrading pip..."
 if ($LASTEXITCODE -ne 0) { Write-Err "Failed to upgrade pip" }
 
 Write-Info "Installing Python packages..."
-& $venvPython -m pip install -r (Join-Path $checkout "requirements.txt") | Out-Null
+$lockFile = Join-Path $checkout "requirements.lock"
+if (Test-Path $lockFile) {
+    & $venvPython -m pip install --require-hashes -r $lockFile | Out-Null
+}
+else {
+    & $venvPython -m pip install -r (Join-Path $checkout "requirements.txt") | Out-Null
+}
 if ($LASTEXITCODE -ne 0) { Write-Err "Failed to install Python dependencies" }
 
 Write-Ok "Installation complete!"

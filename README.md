@@ -81,10 +81,10 @@ source venv/bin/activate
 ```
 
 ```bash
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock
 ```
 
-The virtual environment is always `<extractor checkout>/venv/` (including when the checkout is a MAS submodule). First run downloads EasyOCR language models (~100MB). Ensure internet connectivity.
+`requirements.lock` is the hash-pinned set for Python 3.13 (`requirements.txt` lists the same packages as loose minimums). The virtual environment is always `<extractor checkout>/venv/` (including when the checkout is a MAS submodule). First run downloads EasyOCR language models (~100MB). Ensure internet connectivity.
 
 #### 3. Verify installation
 
@@ -219,7 +219,7 @@ See [Architecture](docs/architecture.md) for technical details.
 
 ## Prerequisites
 
-- Python 3.6+
+- Python 3.13
 - Poppler
 
 ## License

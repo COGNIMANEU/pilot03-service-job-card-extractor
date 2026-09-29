@@ -6,7 +6,7 @@ Complete reference for using Job Card Extractor from the command line.
 
 ### Prerequisites
 
-- Python 3.6+
+- Python 3.13
 - Poppler (system dependency for PDF processing)
 - Dependencies listed in `requirements.txt`
 

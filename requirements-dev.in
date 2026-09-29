@@ -1,0 +1,4 @@
+# Test and lint tools for CI and local development. Compiled into requirements-dev.lock.
+# pytest matches the pin in the parent MAS repository (requirements/python-test-tools.lock).
+pytest==9.1.1
+ruff>=0.16,<0.17

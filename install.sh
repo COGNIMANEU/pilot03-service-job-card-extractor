@@ -9,7 +9,7 @@ set -euo pipefail
 
 # --- Configuration ---
 REPO_URL="https://github.com/COGNIMANEU/pilot03-service-job-card-extractor.git"
-PYTHON_MIN_VERSION="3.6"
+PYTHON_MIN_VERSION="3.13"
 
 # --- Color Output ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -117,10 +117,10 @@ check_python() {
         local version
         version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
         info "Python $version found"
-        if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,6) else 1)" 2>/dev/null; then
+        if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,13) else 1)" 2>/dev/null; then
             ok "Python $version meets minimum requirement ($PYTHON_MIN_VERSION+)"
         else
-            die "Python 3.6+ required (found: $version)"
+            die "Python $PYTHON_MIN_VERSION+ required (found: $version)"
         fi
     else
         die "Python 3 not found. Install from https://www.python.org/downloads/"
@@ -163,8 +163,14 @@ install_job_card_extractor() {
     info "Upgrading pip..."
     "$venv_dir/bin/python" -m pip install --upgrade pip >/dev/null 2>&1 || die "Failed to upgrade pip"
 
-    info "Installing Python packages..."
-    "$venv_dir/bin/python" -m pip install -r "$checkout/requirements.txt" || die "Failed to install Python dependencies"
+    # Prefer the hash-pinned lock (Python 3.13); fall back to the loose floors.
+    if [[ -f "$checkout/requirements.lock" ]]; then
+        info "Installing Python packages from requirements.lock (hash-verified)..."
+        "$venv_dir/bin/python" -m pip install --require-hashes -r "$checkout/requirements.lock" || die "Failed to install Python dependencies"
+    else
+        info "Installing Python packages..."
+        "$venv_dir/bin/python" -m pip install -r "$checkout/requirements.txt" || die "Failed to install Python dependencies"
+    fi
 
     ok "Python dependencies installed"
 

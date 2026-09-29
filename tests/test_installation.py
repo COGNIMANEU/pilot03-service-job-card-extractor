@@ -49,6 +49,30 @@ class TestStandaloneInstaller(unittest.TestCase):
                           log.read_text(encoding='utf-8'))
             self.assertFalse((base / 'home' / '.venv').exists())
 
+    def test_shell_installer_prefers_hash_pinned_lock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            checkout = base / 'pilot03-service-job-card-extractor'
+            checkout.mkdir()
+            (checkout / 'job_card_extractor.py').touch()
+            (checkout / 'requirements.txt').write_text('example-dependency\n', encoding='utf-8')
+            (checkout / 'requirements.lock').write_text('example-dependency==1.0\n', encoding='utf-8')
+            python = checkout / 'venv' / 'bin' / 'python'
+            python.parent.mkdir(parents=True)
+            python.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$PIP_LOG"\n', encoding='utf-8')
+            python.chmod(0o755)
+            script = base / 'downloaded-installer.sh'
+            script.write_bytes((ROOT / 'install.sh').read_bytes())
+            log = base / 'pip-args'
+            env = dict(os.environ, PIP_LOG=str(log), HOME=str(base / 'home'))
+            subprocess.run(
+                ['bash', '-c', 'source "$1"; install_job_card_extractor "$2"',
+                 'bash', str(script), str(checkout)],
+                cwd=base, env=env, capture_output=True, text=True, check=True,
+            )
+            self.assertIn(f'-m pip install --require-hashes -r {checkout}/requirements.lock',
+                          log.read_text(encoding='utf-8'))
+
     def test_piped_shell_installer_runs_and_rejects_incomplete_checkout(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

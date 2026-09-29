@@ -109,7 +109,7 @@ See [User Guide - Output Structure](docs/user-guide.md#output-structure) for for
 
 ## Prerequisites
 
-- Python 3.6+
+- Python 3.13
 - Poppler (`brew install poppler` on macOS, `apt-get install poppler-utils` on Linux)
 
 ## License

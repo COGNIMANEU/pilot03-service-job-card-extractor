@@ -17,11 +17,11 @@ phases:
     name: Setup Python environment
     steps:
       - action: check-python
-        description: Verify Python 3.6+ is available
+        description: Verify Python 3.13+ is available
       - action: create-venv
         description: Create virtual environment at ~/.venv/job-card-extractor
       - action: install-deps
-        description: Install Python dependencies (numpy, opencv, Pillow, pdf2image, pyzbar, easyocr, torch, torchvision)
+        description: Install Python dependencies from requirements.lock (hash-verified; falls back to requirements.txt): numpy, opencv, Pillow, pdf2image, pyzbar, easyocr, torch, torchvision
 
   - id: verify
     name: Verify installation
