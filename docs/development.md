@@ -7,7 +7,11 @@ Local setup, testing, and contribution guide for Job Card Extractor.
 ```
 pilot03-service-job-card-extractor/
 ├── job_card_extractor.py       # Main application (single-file CLI tool)
-├── requirements.txt            # Python dependencies
+├── pyproject.toml              # Python version (3.13), dependencies, ruff config
+├── requirements.txt            # Loose dependency floors (used by the MAS installer)
+├── requirements.lock           # Hash-pinned runtime dependencies (Python 3.13)
+├── requirements-dev.in         # Test/lint tool inputs (pytest, ruff)
+├── requirements-dev.lock       # Hash-pinned test/lint tools
 ├── README.md                   # Project entry point
 ├── CLAUDE.md                   # AI agent context
 ├── tests/                      # Unit tests (pytest)
@@ -32,15 +36,16 @@ pilot03-service-job-card-extractor/
 
 ### Prerequisites
 
-- Python 3.6+
+- Python 3.13
 - Poppler (PDF conversion backend)
+- ZBar shared library (barcode reading through `pyzbar`; needed by the tests too)
 
 ```bash
 # macOS
-brew install poppler
+brew install poppler zbar
 
 # Linux (Ubuntu/Debian)
-apt-get install poppler-utils
+apt-get install poppler-utils libzbar0
 ```
 
 ### Installation
@@ -53,8 +58,9 @@ cd pilot03-service-job-card-extractor
 python -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (hash-verified) and the test/lint tools
+pip install --require-hashes -r requirements.lock
+pip install --no-deps --require-hashes -r requirements-dev.lock
 ```
 
 First run will download EasyOCR language models (~100MB+). Ensure internet connectivity.
@@ -68,6 +74,28 @@ python job_card_extractor.py --version
 # Run on sample file
 python job_card_extractor.py samples/example-01.pdf -o output
 ```
+
+## Dependency Locks
+
+`pyproject.toml` declares `requires-python = ">=3.13,<3.14"` and the direct
+dependencies (kept identical to `requirements.txt`; a test checks this).
+`requirements.lock` pins the full universal (Linux, macOS, Windows) resolution
+with sha256 hashes for Python 3.13, and `requirements-dev.lock` pins pytest and
+ruff separately so the runtime environment never carries test tools. Both are
+generated, not hand-edited, with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv pip compile pyproject.toml --universal --python-version 3.13 \
+    --generate-hashes -o requirements.lock
+uv pip compile requirements-dev.in --universal --python-version 3.13 \
+    --generate-hashes -c requirements.lock -o requirements-dev.lock
+```
+
+Install with `--require-hashes` (the dev lock also with `--no-deps`, as it is
+fully resolved). The parent MAS repository installs `requirements.lock` and then
+its own hash-pinned pytest (`requirements/python-test-tools.lock`); the dev lock
+uses the same pytest version so the two never disagree. Add `--upgrade` to the
+first command only when deliberately refreshing versions.
 
 ## Running Tests
 
