@@ -147,19 +147,15 @@ class TestProcessingFunctions(unittest.TestCase):
 
     def test_main_function_with_no_files(self):
         """Test the main function with no PDF files provided"""
-        with patch('argparse.ArgumentParser.parse_args') as mock_parse_args, \
-             patch('sys.exit') as mock_exit:
+        with patch('argparse.ArgumentParser.parse_args') as mock_parse_args:
 
             mock_args = MagicMock()
             mock_args.version = False
             mock_args.pdf_files = []
             mock_parse_args.return_value = mock_args
 
-            # Call main function
-            job_card_extractor.main()
-
-            # Verify exit was called with error
-            mock_exit.assert_called_once_with(1)
+            # main() returns the exit code; __main__ wraps it in sys.exit
+            self.assertEqual(job_card_extractor.main(), 1)
 
     def test_main_function_with_pdf_files(self):
         """Test actual CLI parsing for explicit overrides and default processing flags."""

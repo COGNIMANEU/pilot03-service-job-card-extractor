@@ -645,10 +645,13 @@ def process_page(page_num, img, reader, create_debug=True, enhance_quality=True)
         print(f"Page {page_num+1}: Processed {len(areas)} areas in {processing_time:.2f}s")
         
         return areas, debug_img
-        
+
     except Exception as e:
-        print(f"Error processing page {page_num+1}: {e}")
-        return [], None
+        # Surface the failure: the caller records which page failed so the
+        # document can be reported as partially/failed instead of silently
+        # dropping the page (issue #177 / F-BUG-043).
+        print(f"Error processing page {page_num+1}: {e}", file=sys.stderr)
+        raise
 
 def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None, parallel_processing=True, enhance_quality=True):
     """Optimized PDF extraction with optional parallel processing."""
@@ -668,6 +671,7 @@ def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None, parallel_p
     reader = easyocr.Reader(lang_list)
     all_areas = []
     debug_images = []
+    failed_pages = []
     
     create_debug = output_dir is not None
     
@@ -694,7 +698,8 @@ def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None, parallel_p
                     page_areas, debug_img = future.result()
                     page_results[page_num] = (page_areas, debug_img)
                 except Exception as e:
-                    print(f"Error processing page {page_num + 1}: {e}")
+                    print(f"Error processing page {page_num + 1}: {e}", file=sys.stderr)
+                    failed_pages.append(page_num + 1)
                     page_results[page_num] = ([], None)
             
             # Flatten results
@@ -707,11 +712,16 @@ def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None, parallel_p
         # Sequential processing
         print("Using sequential processing")
         for page_num, img in enumerate(images):
-            page_areas, debug_img = process_page(
-                page_num, img, reader, 
-                create_debug=create_debug, 
-                enhance_quality=enhance_quality
-            )
+            try:
+                page_areas, debug_img = process_page(
+                    page_num, img, reader,
+                    create_debug=create_debug,
+                    enhance_quality=enhance_quality
+                )
+            except Exception as e:
+                print(f"Error processing page {page_num + 1}: {e}", file=sys.stderr)
+                failed_pages.append(page_num + 1)
+                continue
             all_areas.extend(page_areas)
             if debug_img is not None:
                 debug_images.append(debug_img)
@@ -724,7 +734,16 @@ def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None, parallel_p
                 debug_img_path = os.path.join(output_dir, f'page_{page_num+1}_areas.jpg')
                 cv2.imwrite(debug_img_path, debug_img)
                 print(f"Saved debug image: {debug_img_path}")
-    
+
+    # A page that raised is data the extraction silently lost — fail the
+    # document and name the pages rather than returning partial results that
+    # look complete (issue #177 / F-BUG-043).
+    if failed_pages:
+        raise RuntimeError(
+            f"Failed to process page(s) {sorted(failed_pages)} of "
+            f"{len(images)} in {pdf_path}"
+        )
+
     processing_time = time.time() - start_time
     print(f"PDF processing completed in {processing_time:.2f}s - extracted {len(all_areas)} areas")
     
@@ -1206,10 +1225,12 @@ def extract_operations(json_data, logger=None):
             logger.log_main("info", f"Operation extraction completed: {len(operations_list)} operations found, {successful_extractions} with barcodes")
 
         return operations_list
-        
+
     except Exception as e:
-        print(f"Error in extract_operations: {e}")
-        return []
+        # Propagate: returning [] would write an empty-operations result that
+        # looks like a legitimate extraction (issue #177 / F-BUG-043).
+        print(f"Error in extract_operations: {e}", file=sys.stderr)
+        raise
 
 def extract_job_and_operations(json_data, logger=None):
     """
@@ -1356,11 +1377,18 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
             if logger:
                 if job_and_operations.get('job_number'):
                     logger.job_number = job_and_operations['job_number']
-                
-                # Convert from pdf2image to get page count
-                from pdf2image import convert_from_path
-                images = convert_from_path(pdf_path)
-                logger.set_document_info(len(images), len(areas))
+
+                # Convert from pdf2image to get page count. Diagnostic only —
+                # a metadata failure must not fail an otherwise successful
+                # extraction.
+                try:
+                    # Local import: tests patch pdf2image.convert_from_path.
+                    from pdf2image import convert_from_path
+                    images = convert_from_path(pdf_path)
+                    logger.set_document_info(len(images), len(areas))
+                except Exception as e:
+                    logger.log_main("warning", f"Could not record page count: {e}")
+                    logger.set_document_info(0, len(areas))
             
             # Validate results
             if not isinstance(job_and_operations, dict):
@@ -1374,17 +1402,12 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
             
         except Exception as e:
             error_msg = f"Error during job/operations extraction: {e}"
-            print(error_msg)
+            print(error_msg, file=sys.stderr)
             if logger:
                 logger.log_main("error", error_msg)
-            # Return empty structure on error
-            job_and_operations = {
-                "job_number": "",
-                "quantity": "",
-                "delivery_date": "",
-                "operations": [],
-                "extraction_metadata": logger.get_metadata() if logger else {}
-            }
+            # Propagate: an empty result must never be written in place of a
+            # failed extraction (issue #177 / F-BUG-043).
+            raise
 
         # Step 3: Finalize metadata and prepare final output
         if logger:
@@ -1425,10 +1448,13 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
                     logger.log_main("info", f"Job and operations data saved to {clean_json_path}")
                 
             except Exception as e:
-                error_msg = f"Warning: Error saving output files: {e}"
-                print(error_msg)
+                error_msg = f"Error saving output files: {e}"
+                print(error_msg, file=sys.stderr)
                 if logger:
-                    logger.log_main("warning", error_msg)
+                    logger.log_main("error", error_msg)
+                # A result file that could not be written is a failed
+                # extraction, not a successful one (issue #177 / F-BUG-043).
+                raise
 
         # Step 5: Finalize and return results
         print("Processing completed successfully!")
@@ -1442,17 +1468,13 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
         raise  # Re-raise file not found errors
     except Exception as e:
         error_msg = f"Critical error processing PDF document: {e}"
-        print(error_msg)
+        print(error_msg, file=sys.stderr)
         if logger:
             logger.log_main("error", error_msg)
             logger.close_all_loggers()
-        # Return empty structure for any other errors
-        return {
-            "job_number": "",
-            "quantity": "",
-            "delivery_date": "",
-            "operations": []
-        }
+        # Propagate: callers must see the failure, never an empty result
+        # (issue #177 / F-BUG-043).
+        raise
 
 #############################################
 # Command Line Interface
@@ -1520,18 +1542,19 @@ def main():
 
     if args.version:
         display_version()
-        sys.exit(0)
+        return 0
 
     # Ensure pdf_files is provided if not showing version
     if not args.pdf_files:
         parser.print_help()
         print("\nError: At least one PDF file is required unless using --version.")
-        sys.exit(1)
+        return 1
 
     # Process argument overrides
     save_raw = args.raw if args.raw else not args.no_raw
     parallel_processing = args.parallel if args.parallel else not args.no_parallel
 
+    failed_files = []
     for pdf_file in args.pdf_files:
         print(f"\nProcessing {pdf_file}...")
         try:
@@ -1551,7 +1574,19 @@ def main():
                 print(json.dumps(result, indent=2))
 
         except Exception as e:
-            print(f"Error processing {pdf_file}: {str(e)}")
+            # Record the failure and keep processing the rest of the batch;
+            # the exit code reports it (issue #177 / F-BUG-043).
+            print(f"Error processing {pdf_file}: {str(e)}", file=sys.stderr)
+            failed_files.append(pdf_file)
+
+    if failed_files:
+        print(
+            f"Failed to process {len(failed_files)} file(s): "
+            f"{', '.join(failed_files)}",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
