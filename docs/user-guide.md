@@ -75,6 +75,18 @@ python job_card_extractor.py document.pdf -l en fr de
 python job_card_extractor.py large_doc.pdf -o output --fast-mode
 ```
 
+### Exit Codes and Failure Behavior
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Every input PDF was processed successfully |
+| `1` | Missing arguments, or at least one PDF failed |
+
+When a file fails, the extractor prints the reason to stderr, keeps processing
+the remaining files in a batch, and exits `1` at the end. A failed file never
+produces a `*_job_and_operations.json` result file — if one or more pages could
+not be processed, the error names the failed page numbers.
+
 **Skip intermediate files (clean output):**
 ```bash
 python job_card_extractor.py input.pdf -o output --no-raw --no-annotated

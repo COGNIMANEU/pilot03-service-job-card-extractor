@@ -48,8 +48,10 @@ Dictionary with structure:
 **Raises:**
 
 - `FileNotFoundError` — PDF file not found
-- `ValueError` — Invalid parameters
-- `RuntimeError` — Processing error (check logs)
+- `ValueError` — Invalid parameters or corrupt extraction data
+- `RuntimeError` — Processing error, including one or more pages that failed to process (check logs)
+
+On any raised exception the function writes **no** `*_job_and_operations.json` result file — a failed extraction never produces an output that looks like a successful one. Page-level failures abort the document and the `RuntimeError` message lists the 1-indexed page numbers that failed.
 
 **Example:**
 
