@@ -35,10 +35,15 @@ python job_card_extractor.py [OPTIONS] pdf_files...
 | `--version` | `-v` | — | Display version and exit |
 | `--output-dir` | `-o` | Current dir | Output directory for results |
 | `--lang` | `-l` | `en` | OCR language codes (space-separated) |
-| `--no-raw` | — | False | Skip saving raw extraction data |
-| `--no-annotated` | — | False | Skip saving annotated debug images |
-| `--no-parallel` | — | False | Disable parallel page processing |
-| `--fast-mode` | — | False | Use faster processing (lower quality) |
+| `--raw` | — | off | Save raw extraction data |
+| `--no-raw` | — | off | Skip saving raw extraction data (overrides `--raw`) |
+| `--no-annotated` | — | off | Skip saving annotated debug images |
+| `--parallel` | — | off | Enable parallel page processing |
+| `--no-parallel` | — | off | Disable parallel page processing (overrides `--parallel`) |
+| `--fast-mode` | — | off | Use faster processing (lower quality) |
+
+`--raw`/`--no-raw` and `--parallel`/`--no-parallel` are paired switches: when
+both are given, the last one wins.
 
 ### Examples
 

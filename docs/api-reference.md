@@ -15,7 +15,7 @@ process_pdf_document(
     lang_list: List[str] = ["en"],
     save_raw: bool = True,
     save_annotated: bool = True,
-    enable_parallel: bool = True,
+    parallel_processing: bool = True,
     enhance_quality: bool = True
 ) -> dict
 ```
@@ -29,7 +29,7 @@ process_pdf_document(
 | `lang_list` | List[str] | `["en"]` | OCR language codes |
 | `save_raw` | bool | `True` | Save raw extraction data |
 | `save_annotated` | bool | `True` | Save annotated debug images |
-| `enable_parallel` | bool | `True` | Use parallel page processing |
+| `parallel_processing` | bool | `True` | Use parallel page processing |
 | `enhance_quality` | bool | `True` | Apply image quality enhancements |
 
 **Returns:**

@@ -114,25 +114,29 @@ Matches extracted operations with detected barcodes using hierarchical strategie
 
 ```mermaid
 flowchart TD
-    A[Operation extracted] --> B{Barcode contains<br/>op number?}
+    A[Operation extracted] --> B{Barcode decodes<br/>to op number?}
     B -- Yes --> C[direct_match<br/>confidence: 1.5]
-    B -- No --> D{Barcode in<br/>same area?}
+    B -- No --> D{Barcode in same area<br/>decodes to op number?}
     D -- Yes --> E[same_area_match<br/>confidence: 1.3]
-    D -- No --> F{First barcode<br/>in area?}
+    D -- No --> F{Undecodable barcode<br/>in area?}
     F -- Yes --> G[same_area_fallback<br/>confidence: 1.0]
-    F -- No --> H{Barcode in<br/>adjacent areas?}
+    F -- No --> H{Barcode in adjacent areas<br/>decodes to op number?}
     H -- Yes --> I[proximity_match<br/>confidence: 0.8]
     H -- No --> J[no_barcode_found<br/>confidence: 0.3]
 ```
+
+Matching decodes the operation number embedded in each barcode
+(`BARCODE_OP_PATTERNS`) and compares it for equality with the operation
+number — a barcode ending in "105" never attaches to operation "10".
 
 **Strategy Hierarchy:**
 
 | Priority | Strategy | Confidence | Description |
 |----------|----------|-----------|-------------|
-| 1 | `direct_match` | 1.5 | Barcode contains operation number directly |
-| 2 | `same_area_match` | 1.3 | Barcode in same document area as operation |
-| 3 | `same_area_fallback` | 1.0 | First barcode found in operation's area |
-| 4 | `proximity_match` | 0.8 | Barcode in adjacent areas (+-2 areas) |
+| 1 | `direct_match` | 1.5 | Barcode decodes to the operation number |
+| 2 | `same_area_match` | 1.3 | Same-area barcode decodes to the operation number |
+| 3 | `same_area_fallback` | 1.0 | First undecodable barcode found in operation's area |
+| 4 | `proximity_match` | 0.8 | Barcode in adjacent areas (+-2 areas) decoding to the operation number |
 | 5 | `no_barcode_found` | 0.3 | No associated barcode found |
 
 ### 7. Logging System
