@@ -118,20 +118,24 @@ Tests use `unittest.mock` to avoid requiring actual PDF files or OCR processing 
 | `test_ocr.py` | Image preprocessing, OCR, debug images |
 | `test_barcode_extraction.py` | Barcode cleaning, detection, line detection |
 | `test_processing.py` | Main pipeline and CLI argument handling |
+| `test_failure_semantics.py` | Loud-failure exit codes and propagation |
+| `test_cleanup_and_matching.py` | Barcode matching correctness, 80-line limit, CLI flags, cache safety, debug naming |
 
 ## Code Organization
 
-The project is a single-file application (`job_card_extractor.py`) organized into sections:
+The project is a single-file application (`job_card_extractor.py`) organized into sections
+(names rather than line numbers — the layout shifts as the module evolves):
 
-| Section | Lines | Description |
-|---------|-------|-------------|
-| `ExtractionLogger` | ~47-280 | Logging system for tracking extraction process |
-| Version functions | ~285-304 | `get_version()`, `display_version()` |
-| Barcode & OCR | ~308-557 | Detection, preprocessing, OCR with caching |
-| PDF processing | ~581-732 | Page processing and parallel PDF extraction |
-| Job & operations | ~738-1241 | Extraction logic with pattern matching |
-| Main processing | ~1247-1456 | Entry point: `process_pdf_document()` |
-| CLI interface | ~1462-1558 | Argument parsing and dispatch |
+| Section | Description |
+|---------|-------------|
+| Constants | Named thresholds and pattern tables (`MIN_*`, `*_PATTERNS`) |
+| `ExtractionLogger` | Logging system for tracking extraction process |
+| Version functions | `get_version()`, `display_version()` |
+| Barcode & OCR | Detection, preprocessing, thread-safe OCR cache |
+| PDF processing | Page processing and parallel/sequential PDF extraction |
+| Job & operations | Extraction logic with pattern matching |
+| Main processing | Entry point: `process_pdf_document()` |
+| CLI interface | `_build_arg_parser()` and dispatch |
 
 ## Manual Testing
 
