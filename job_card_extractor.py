@@ -1195,7 +1195,7 @@ def _barcode_operation_number(barcode_value):
             continue
         if MIN_OP_NUMBER <= op_num <= MAX_OP_NUMBER:
             return op_num
-        return None
+        # Out of range: fall through to the next pattern, like before.
     return None
 
 
