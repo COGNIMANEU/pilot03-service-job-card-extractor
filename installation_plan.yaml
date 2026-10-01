@@ -3,16 +3,6 @@ version: "1.1.0"
 description: CLI tool for extracting job numbers and operations from manufacturing job card PDFs
 
 phases:
-  - id: system-deps
-    name: Install system dependencies
-    steps:
-      - action: detect-os
-        description: Detect operating system
-      - action: detect-package-manager
-        description: Detect available package manager
-      - action: install-poppler
-        description: Install poppler/poppler-utils (required for pdf2image)
-
   - id: python-env
     name: Setup Python environment
     steps:
@@ -21,31 +11,28 @@ phases:
       - action: create-venv
         description: Create virtual environment at ~/.venv/job-card-extractor
       - action: install-deps
-        description: Install Python dependencies from requirements.lock (hash-verified; falls back to requirements.txt): numpy, opencv, Pillow, pdf2image, pyzbar, easyocr, torch, torchvision
+        description: Install Python dependencies from requirements.lock (hash-verified; falls back to requirements.txt): numpy, opencv, Pillow, pypdfium2, zxing-cpp, easyocr, torch, torchvision
 
   - id: verify
     name: Verify installation
     steps:
-      - action: check-poppler
-        description: Verify poppler is in PATH (pdfinfo command)
       - action: check-python-packages
-        description: Verify all Python packages are importable (cv2, easyocr, pyzbar, pdf2image)
+        description: Verify all Python packages are importable (cv2, easyocr, zxingcpp, pypdfium2)
 
 rollback:
   - Remove virtual environment: rm -rf ~/.venv/job-card-extractor
-  - Remove poppler: brew uninstall poppler / apt-get remove poppler-utils
 
 verification:
-  - Command: pdfinfo -v
-  - Python: python3 -c "import cv2, easyocr, pyzbar, pdf2image; print('All packages ready')"
+  Python: python3 -c "import cv2, easyocr, zxingcpp, pypdfium2; print('All packages ready')"
 
 platform_support:
+  # No system dependencies: pypdfium2 and zxing-cpp ship self-contained wheels.
   macos:
     package_manager: brew
-    deps: poppler
+    deps: none
   linux:
     package_manager: apt/dnf/yum/pacman/zypper
-    deps: poppler-utils / poppler / poppler-tools
+    deps: none
   windows:
-    package_manager: winget/choco (manual Poppler install documented)
+    package_manager: winget/choco
     script: install.ps1

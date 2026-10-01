@@ -48,21 +48,10 @@ irm https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extrac
 
 ### Manual Installation
 
-#### 1. Install system dependency (Poppler)
+#### 1. Clone and set up Python environment
 
-```bash
-# macOS
-brew install poppler
-```
-
-```bash
-# Linux (Ubuntu/Debian)
-apt-get install poppler-utils
-```
-
-Windows: Download from https://github.com/oschwartz10612/poppler-windows/releases/
-
-#### 2. Clone and set up Python environment
+No system packages are needed: PDF rendering (pypdfium2) and barcode
+decoding (zxing-cpp) ship as self-contained wheels.
 
 ```bash
 git clone https://github.com/COGNIMANEU/pilot03-service-job-card-extractor
@@ -220,7 +209,8 @@ See [Architecture](docs/architecture.md) for technical details.
 ## Prerequisites
 
 - Python 3.13
-- Poppler
+
+No system packages required (pypdfium2 and zxing-cpp ship self-contained wheels).
 
 ## License
 

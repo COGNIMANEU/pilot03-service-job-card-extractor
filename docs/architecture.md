@@ -6,10 +6,10 @@ Technical overview of Job Card Extractor design and implementation.
 
 ```mermaid
 flowchart TD
-    A[PDF Input] --> B[PDF Conversion<br/>pdf2image + poppler]
+    A[PDF Input] --> B[PDF Conversion<br/>pypdfium2]
     B --> C[Image Processing<br/>OpenCV]
     C --> D[Area Detection<br/>horizontal line detection]
-    D --> E[Barcode Detection<br/>PyZbar]
+    D --> E[Barcode Detection<br/>zxing-cpp]
     D --> F[OCR Processing<br/>EasyOCR + caching]
     E & F --> G[Information Extraction<br/>regex patterns]
     G --> H[Barcode Association<br/>hierarchical strategies]
@@ -25,7 +25,7 @@ flowchart TD
 ### 1. PDF Conversion
 
 - Converts multi-page PDFs to individual page images
-- Uses `pdf2image` (requires poppler)
+- Uses `pypdfium2` (self-contained wheel; no system poppler)
 - Optional parallel processing for faster handling
 - Resolution: 200 DPI (configurable)
 
@@ -46,7 +46,7 @@ Purpose: Divide page into logical document sections.
 Detects barcodes in each document area.
 
 **Detection Methods:**
-- PyZbar (primary decoder)
+- zxing-cpp (primary decoder)
 - Multiple scan attempts with different preprocessing
 - Supports Code128, Code39, EAN, UPC, and other formats
 
@@ -279,7 +279,7 @@ Extend `_extract_operations()` in `job_card_extractor.py`:
 
 ### Barcode Format Support
 
-PyZbar supports 30+ formats. Configuration in barcode detection section.
+zxing-cpp supports 20+ formats. Configuration in barcode detection section.
 
 ### Language Support
 
@@ -290,13 +290,13 @@ Add language codes to `-l` option. EasyOCR supports 80+ languages.
 | Package | Purpose | Version |
 |---------|---------|---------|
 | opencv-python | Image processing | 4.5+ |
-| pdf2image | PDF conversion | 1.16+ |
+| pypdfium2 | PDF conversion | 4.30+ |
 | EasyOCR | Text extraction | 1.6+ |
-| pyzbar | Barcode detection | 0.1.8+ |
+| zxing-cpp | Barcode detection | 2.2+ |
 | numpy | Numerical operations | 1.20+ |
 | Pillow | Image operations | 8.0+ |
 
-System: poppler (PDF conversion backend)
+System: none (pypdfium2 and zxing-cpp ship self-contained wheels)
 
 ---
 

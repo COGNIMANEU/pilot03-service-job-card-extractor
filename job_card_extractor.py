@@ -19,11 +19,11 @@ import re
 import argparse
 import sys
 from pathlib import Path
-from pdf2image import convert_from_path
+import pypdfium2
 import easyocr
 from PIL import Image
 import warnings
-from pyzbar.pyzbar import decode
+import zxingcpp
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 from functools import lru_cache
@@ -38,6 +38,53 @@ warnings.filterwarnings(
     category=UserWarning,
     module=r"torch.utils.data.dataloader"
 )
+
+
+def convert_from_path(pdf_path, dpi=200):
+    """Render a PDF file to a list of PIL images via pypdfium2.
+
+    Drop-in replacement for ``pdf2image.convert_from_path`` at its default
+    200 dpi; pypdfium2 ships a self-contained wheel, so no system poppler is
+    needed (see docs/decisions/ocr-stack-spike.md).
+    """
+    pdf = pypdfium2.PdfDocument(pdf_path)
+    try:
+        scale = dpi / 72.0
+        return [page.render(scale=scale).to_pil() for page in pdf]
+    finally:
+        pdf.close()
+
+
+class _BarcodeResult:
+    """pyzbar-shaped result wrapping a zxing-cpp Barcode.
+
+    Keeps the ``data``/``type``/``rect``/``quality`` attribute surface the
+    pipeline consumed from pyzbar so downstream code is unchanged.
+    """
+
+    __slots__ = ('data', 'type', 'rect', 'quality')
+
+    def __init__(self, barcode):
+        self.data = barcode.bytes  # raw decoded bytes, like pyzbar's Decoded.data
+        # Normalise to pyzbar-style names (e.g. "CODE128") so recorded
+        # barcode types stay stable for consumers.
+        self.type = str(barcode.format).upper().replace(' ', '')
+        pos = barcode.position
+        xs = [pos.top_left.x, pos.top_right.x, pos.bottom_right.x, pos.bottom_left.x]
+        ys = [pos.top_left.y, pos.top_right.y, pos.bottom_right.y, pos.bottom_left.y]
+        x, y = min(xs), min(ys)
+        self.rect = (x, y, max(xs) - x, max(ys) - y)
+        self.quality = 100  # zxing-cpp reports no quality score
+
+
+def decode(image):
+    """Decode barcodes from a PIL image via zxing-cpp.
+
+    Drop-in replacement for ``pyzbar.pyzbar.decode``; zxing-cpp ships a
+    self-contained wheel, so no system libzbar is needed (see
+    docs/decisions/ocr-stack-spike.md). Returns pyzbar-shaped results.
+    """
+    return [_BarcodeResult(b) for b in zxingcpp.read_barcodes(image)]
 
 #############################################
 # Logging System
@@ -1378,12 +1425,11 @@ def process_pdf_document(pdf_path, output_dir=None, lang_list=None, save_raw=Tru
                 if job_and_operations.get('job_number'):
                     logger.job_number = job_and_operations['job_number']
 
-                # Convert from pdf2image to get page count. Diagnostic only —
+                # Re-render the PDF to get the page count. Diagnostic only —
                 # a metadata failure must not fail an otherwise successful
                 # extraction.
                 try:
-                    # Local import: tests patch pdf2image.convert_from_path.
-                    from pdf2image import convert_from_path
+                    # Module-level lookup: tests patch convert_from_path.
                     images = convert_from_path(pdf_path)
                     logger.set_document_info(len(images), len(areas))
                 except Exception as e:

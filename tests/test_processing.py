@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import job_card_extractor
 
 class TestProcessingFunctions(unittest.TestCase):
-    @patch('pdf2image.convert_from_path')
+    @patch('job_card_extractor.convert_from_path')
     @patch('os.path.exists')
     @patch('job_card_extractor.extract_areas_from_pdf')
     @patch('job_card_extractor.extract_job_and_operations')

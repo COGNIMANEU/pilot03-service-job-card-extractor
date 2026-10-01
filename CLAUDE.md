@@ -11,7 +11,7 @@
 - Check the CLI with `venv/bin/python job_card_extractor.py --version`.
 
 ## Gotchas
-- Barcode reading needs the native `libzbar` (`apt-get install libzbar0`, `brew install zbar`); the test suite imports `pyzbar` and fails without it.
-- PDF conversion needs Poppler on the system (`brew install poppler` on macOS; `apt-get install poppler-utils` on Debian/Ubuntu).
+- Barcode reading uses `zxing-cpp` (`import zxingcpp`); no system `libzbar` needed.
+- PDF conversion uses `pypdfium2`; no system Poppler needed. Both ship self-contained wheels.
 - The first real OCR run downloads EasyOCR language models; the unit tests mock OCR and PDF processing.
 - `install.sh` and `install.ps1` create the extractor checkout's `venv/`, matching the MAS server; piped installers clone into the current directory if no checkout is present.
