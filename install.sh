@@ -63,53 +63,10 @@ detect_package_manager() {
     fi
 }
 
-# --- Sudo Detection ---
-# Sets the SUDO_CMD global to "sudo" or "". Call this directly (not via command
-# substitution) so that a failure here can `die` and abort the whole script;
-# inside $(...) the exit would only terminate the subshell and execution would
-# silently continue with an empty sudo command.
-SUDO_CMD=""
-need_sudo() {
-    if [ "$(id -u)" -ne 0 ]; then
-        if command -v sudo &>/dev/null; then
-            SUDO_CMD="sudo"
-        else
-            die "Root privileges required. Run as root or install sudo."
-        fi
-    else
-        SUDO_CMD=""
-    fi
-}
-
-# --- System Dependencies (Poppler) ---
-install_deps() {
-    local pm="$1" sudo_cmd="$2"
-    info "Installing system dependencies..."
-
-    case "$pm" in
-        brew)
-            brew install poppler || die "Failed to install poppler"
-            ;;
-        apt)
-            $sudo_cmd apt-get update -qq || die "Failed to update apt package lists"
-            $sudo_cmd apt-get install -y -qq poppler-utils || die "Failed to install poppler-utils"
-            ;;
-        dnf|yum)
-            $sudo_cmd "$pm" install -y -q poppler-utils || die "Failed to install poppler-utils"
-            ;;
-        pacman)
-            $sudo_cmd pacman -Sy --noconfirm poppler || die "Failed to install poppler"
-            ;;
-        zypper)
-            $sudo_cmd zypper install -y poppler-tools || die "Failed to install poppler-tools"
-            ;;
-        *)
-            die "Unsupported package manager '$pm'. Install poppler manually: https://poppler.freedesktop.org/"
-            ;;
-    esac
-
-    ok "System dependencies installed"
-}
+# --- System Dependencies ---
+# None: pypdfium2 (PDF rendering) and zxing-cpp (barcode decoding) ship
+# self-contained wheels, so no system packages are needed. See
+# docs/decisions/ocr-stack-spike.md.
 
 # --- Python Version Check ---
 check_python() {
@@ -193,13 +150,7 @@ verify_installation() {
     local checkout="$1"
     info "Verifying installation..."
 
-    if command -v pdfinfo &>/dev/null; then
-        ok "Poppler installed"
-    else
-        die "Poppler not found in PATH. Check your package manager installation."
-    fi
-
-    if "$checkout/venv/bin/python" -c "import cv2, easyocr, pyzbar, pdf2image" 2>/dev/null; then
+    if "$checkout/venv/bin/python" -c "import cv2, easyocr, zxingcpp, pypdfium2" 2>/dev/null; then
         ok "Python packages importable"
     else
         die "Python packages not properly installed. Activate the venv and check with: pip list"
@@ -221,13 +172,11 @@ main() {
     fi
 
     pm=$(detect_package_manager "$os")
-    need_sudo  # sets SUDO_CMD; dies if root is required but sudo is unavailable
 
     info "OS: $os | Arch: $arch | Package Manager: $pm"
 
     check_python
     checkout=$(resolve_checkout)
-    install_deps "$pm" "$SUDO_CMD"
     install_job_card_extractor "$checkout"
     verify_installation "$checkout"
 

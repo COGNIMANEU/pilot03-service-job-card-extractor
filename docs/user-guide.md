@@ -7,23 +7,10 @@ Complete reference for using Job Card Extractor from the command line.
 ### Prerequisites
 
 - Python 3.13
-- Poppler (system dependency for PDF processing)
 - Dependencies listed in `requirements.txt`
 
-### System Dependencies
-
-**macOS:**
-```bash
-brew install poppler
-```
-
-**Linux (Ubuntu/Debian):**
-```bash
-apt-get install poppler-utils
-```
-
-**Windows:**
-Download from [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases/)
+No system packages are needed: PDF rendering (pypdfium2) and barcode
+decoding (zxing-cpp) ship as self-contained wheels.
 
 ### Python Setup
 

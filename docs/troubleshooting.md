@@ -4,27 +4,21 @@ Common issues and solutions for Job Card Extractor.
 
 ## Installation Issues
 
-### "poppler is not found"
+### PDF conversion fails
 
 **Symptoms:** Error during PDF conversion or import failure.
 
 **Solution:**
 
-macOS:
-```bash
-brew install poppler
-```
+PDF rendering uses `pypdfium2`, a self-contained wheel with no system
+dependencies (Poppler is not needed). If conversion fails, reinstall the
+locked dependencies:
 
-Linux (Ubuntu/Debian):
 ```bash
-apt-get install poppler-utils
-```
+pip install --require-hashes -r requirements.lock
 
-Windows: Download from [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases/)
-
-After installation, test:
-```bash
-pdftoppm --version
+# Verify the renderer imports and opens a file
+python -c "import pypdfium2; pypdfium2.PdfDocument('file.pdf')"
 ```
 
 ### Python Module Not Found
@@ -59,8 +53,8 @@ Install packages individually with limited cache:
 ```bash
 pip install --no-cache-dir opencv-python
 pip install --no-cache-dir easyocr
-pip install --no-cache-dir pyzbar
-pip install --no-cache-dir pdf2image
+pip install --no-cache-dir zxing-cpp
+pip install --no-cache-dir pypdfium2
 ```
 
 ## Processing Issues
@@ -267,7 +261,7 @@ pip install --no-cache-dir pdf2image
 
 5. **Check logs for barcode errors:**
    ```bash
-   grep "barcode\|pyzbar" extraction_process_*.log
+   grep "barcode\|zxing" extraction_process_*.log
    ```
 
 ### Wrong Barcode Matched

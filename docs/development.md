@@ -37,16 +37,10 @@ pilot03-service-job-card-extractor/
 ### Prerequisites
 
 - Python 3.13
-- Poppler (PDF conversion backend)
-- ZBar shared library (barcode reading through `pyzbar`; needed by the tests too)
 
-```bash
-# macOS
-brew install poppler zbar
-
-# Linux (Ubuntu/Debian)
-apt-get install poppler-utils libzbar0
-```
+No system dependencies: PDF rendering uses `pypdfium2` and barcode reading
+uses `zxing-cpp`, both shipped as self-contained wheels (see
+`docs/decisions/ocr-stack-spike.md`).
 
 ### Installation
 
