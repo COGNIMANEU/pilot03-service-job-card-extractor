@@ -70,37 +70,30 @@ The tool generates:
 
 ### Common Issues
 
-**`ModuleNotFoundError` (e.g. `No module named 'pdf2image'`):** the virtual
+**`ModuleNotFoundError` (e.g. `No module named 'pypdfium2'`):** the virtual
 environment is not active. Run `source ~/.venv/job-card-extractor/bin/activate`
 first, then re-run the command.
 
-**`Poppler not found in PATH` / `pdfinfo` missing:** Poppler is not installed.
-Reinstall it:
+**PDF conversion fails:** the extractor renders PDFs with `pypdfium2`, a
+self-contained wheel — no system Poppler is needed. Reinstall the locked
+dependencies:
 
-- macOS: `brew install poppler`
-- Debian/Ubuntu: `sudo apt-get install poppler-utils`
-- Fedora/RHEL: `sudo dnf install poppler-utils`
+```bash
+pip install --require-hashes -r requirements.lock
+python -c "import pypdfium2; print(pypdfium2.__version__)"
+```
 
 **First run is slow:** EasyOCR downloads its language models (~100MB+) on first
 use. Subsequent runs reuse the cached models.
-
-**Permission denied during install:** the installer uses `sudo` for the system
-package step on Linux. Run it as a user with `sudo` access, or install Poppler
-manually first.
 
 ---
 
 ## Uninstallation
 
-Remove the virtual environment, and (optionally) Poppler:
+Remove the virtual environment:
 
 ```bash
-# Remove the virtual environment
 rm -rf ~/.venv/job-card-extractor
-
-# Remove Poppler (optional)
-brew uninstall poppler              # macOS
-sudo apt-get remove poppler-utils   # Debian/Ubuntu
 ```
 
 ---
