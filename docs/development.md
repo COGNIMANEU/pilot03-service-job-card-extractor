@@ -113,7 +113,8 @@ no `nvidia-*`, `cuda-*` or `triton` packages. Three details matter:
 packages and keeps every pin and PyPI hash of `requirements.lock`.
 
 Install with `--require-hashes` (the dev lock also with `--no-deps`, as it is
-fully resolved). The parent MAS repository installs `requirements.lock` and then
+fully resolved). The parent MAS repository installs `requirements/cpu.lock` or `requirements.lock`
+(the same torch-variant rule as `install.sh`, from MAS #379) and then
 its own hash-pinned pytest (`requirements/python-test-tools.lock`); the dev lock
 uses the same pytest version so the two never disagree. Add `--upgrade` to the
 first command only when deliberately refreshing versions.

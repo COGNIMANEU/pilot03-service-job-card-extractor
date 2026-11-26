@@ -89,6 +89,9 @@ if (-not (Test-Path (Join-Path $checkout "job_card_extractor.py")) -or
     Write-Err "Extractor checkout incomplete at $checkout"
 }
 
+# Choose (and validate LOCK_FILE) before the slow venv and pip steps.
+$lockName = Select-LockFile $checkout
+
 $venvPath = Join-Path $checkout "venv"
 if (-not (Test-Path $venvPath)) {
     Write-Info "Creating virtual environment at $venvPath"
@@ -102,7 +105,6 @@ Write-Info "Upgrading pip..."
 & $venvPython -m pip install --upgrade pip | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Err "Failed to upgrade pip" }
 
-$lockName = Select-LockFile $checkout
 $lockFile = Join-Path $checkout $lockName
 Write-Info "Installing Python packages from $lockName..."
 if ($lockName -like "*.lock") {

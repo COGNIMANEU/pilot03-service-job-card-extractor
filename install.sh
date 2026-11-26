@@ -143,7 +143,10 @@ torch_variant() {
     if ! command -v nvidia-smi &>/dev/null; then
         echo "cpu (nvidia-smi not found)"; return 0
     fi
-    if ! out="$(nvidia-smi --query-gpu=driver_version,compute_cap --format=csv,noheader 2>/dev/null)" ||
+    # A wedged driver can hang nvidia-smi; bound it where timeout(1) exists.
+    local runner=()
+    command -v timeout &>/dev/null && runner=(timeout 20)
+    if ! out="$("${runner[@]+"${runner[@]}"}" nvidia-smi --query-gpu=driver_version,compute_cap --format=csv,noheader 2>/dev/null)" ||
         [ -z "$out" ]; then
         echo "cpu (nvidia-smi failed)"; return 0
     fi
@@ -182,11 +185,13 @@ select_lockfile() {
     fi
 
     info "torch variant: $variant $reason" >&2
-    if [ "$variant" = "cpu" ] && [ -f "$checkout/$CPU_LOCK" ]; then
-        echo "$CPU_LOCK"
-    elif [ -f "$checkout/$CUDA_LOCK" ]; then
-        [ "$variant" = "cpu" ] && warn "$CPU_LOCK not found; installing $CUDA_LOCK instead" >&2
-        echo "$CUDA_LOCK"
+    local preferred="$CPU_LOCK" other="$CUDA_LOCK"
+    [ "$variant" = "cuda" ] && preferred="$CUDA_LOCK" other="$CPU_LOCK"
+    if [ -f "$checkout/$preferred" ]; then
+        echo "$preferred"
+    elif [ -f "$checkout/$other" ]; then
+        warn "$preferred not found; installing $other instead" >&2
+        echo "$other"
     else
         warn "No lock file found; installing unpinned requirements.txt" >&2
         echo "requirements.txt"
@@ -197,6 +202,8 @@ select_lockfile() {
 install_job_card_extractor() {
     local checkout="$1" venv_dir="$1/venv" os="${2:-}" lockfile
     [ -n "$os" ] || os="$(detect_os)"
+    # Choose (and validate LOCK_FILE) before the slow venv and pip steps.
+    lockfile="$(select_lockfile "$checkout" "$os")"
     info "Setting up Python virtual environment at $venv_dir..."
 
     if [[ ! -d "$venv_dir" ]]; then
@@ -208,7 +215,6 @@ install_job_card_extractor() {
     "$venv_dir/bin/python" -m pip install --upgrade pip >/dev/null 2>&1 || die "Failed to upgrade pip"
 
     # Hash-pinned locks target Python 3.13; requirements.txt is the loose fallback.
-    lockfile="$(select_lockfile "$checkout" "$os")"
     if [[ "$lockfile" == *.lock ]]; then
         info "Installing Python packages from $lockfile (hash-verified)..."
         "$venv_dir/bin/python" -m pip install --require-hashes -r "$checkout/$lockfile" || die "Failed to install Python dependencies"

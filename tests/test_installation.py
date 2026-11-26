@@ -162,6 +162,28 @@ class TestTorchVariantSelection(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), 'requirements/cpu.lock')
         self.assertIn('compute capability 6.1 < 7.5 required by CUDA 13 torch', result.stderr)
 
+    def test_driver_and_capability_must_hold_on_the_same_gpu(self):
+        fake_nvidia_smi(self.fake_bin, '535.183.01, 8.6\n580.65.06, 6.1\n')
+        result = self.select()
+        self.assertEqual(result.stdout.strip(), 'requirements/cpu.lock')
+        self.assertIn('driver 535 < 580', result.stderr)
+
+    def test_cuda_host_without_cuda_lock_uses_cpu_lock(self):
+        (self.checkout / 'requirements.lock').unlink()
+        fake_nvidia_smi(self.fake_bin, '580.65.06, 8.6\n')
+        result = self.select()
+        self.assertEqual(result.stdout.strip(), 'requirements/cpu.lock')
+        self.assertIn('requirements.lock not found; installing requirements/cpu.lock', result.stderr)
+
+    def test_missing_lock_file_override_stops_before_venv_setup(self):
+        log = self.base / 'pip-args'
+        result = self.run_installer('install_job_card_extractor "$2" "$3"',
+                                    LOCK_FILE='typo.lock', PIP_LOG=str(log))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('LOCK_FILE=typo.lock not found', result.stderr)
+        self.assertFalse((self.checkout / 'venv').exists())
+        self.assertFalse(log.exists())
+
     def test_compute_capability_compares_numerically(self):
         # "10.0" sorts before "7.5" as a string; Blackwell must still pick cuda.
         fake_nvidia_smi(self.fake_bin, '590.10, 10.0\n')
@@ -245,6 +267,13 @@ class TestWindowsInstallerLockSelection(unittest.TestCase):
         self.assertIn('$env:LOCK_FILE', windows)
         self.assertIn('Write-Info "torch variant: cpu $reason"', windows)
         self.assertIn('& $venvPython -m pip install --require-hashes -r $lockFile', windows)
+        self.assertIn('$CUDA_LOCK = "requirements.lock"', windows)
+        self.assertIn("-replace '\\\\', '/' -replace '^\\./', ''", windows)
+        self.assertIn('installing $CUDA_LOCK instead', windows)
+        self.assertIn('installing unpinned requirements.txt', windows)
+        # Lock choice (and LOCK_FILE validation) happens before the venv is built.
+        self.assertLess(windows.index('$lockName = Select-LockFile $checkout'),
+                        windows.index('$venvPath = Join-Path $checkout "venv"'))
 
 
 if __name__ == '__main__':
