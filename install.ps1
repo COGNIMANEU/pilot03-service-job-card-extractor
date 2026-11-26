@@ -2,9 +2,16 @@
 # Run with:
 #   irm https://raw.githubusercontent.com/COGNIMANEU/pilot03-service-job-card-extractor/main/install.ps1 | iex
 
+# Dependencies: Windows always installs the CPU torch variant from the
+# hash-pinned requirements\cpu.lock (PyPI has no CUDA 13 torch wheel for
+# Windows, and install.sh probes nvidia-smi only on Linux). Set
+# $env:LOCK_FILE = "<path>" (relative to the checkout) to choose another lock.
+
 $ErrorActionPreference = "Stop"
 
 $REPO_URL = "https://github.com/COGNIMANEU/pilot03-service-job-card-extractor.git"
+$CPU_LOCK = "requirements/cpu.lock"
+$CUDA_LOCK = "requirements.lock"
 
 function Write-Info { param($m) Write-Host "[INFO]  $m" -ForegroundColor Cyan }
 function Write-Ok { param($m) Write-Host "[ OK ]  $m" -ForegroundColor Green }
@@ -23,6 +30,30 @@ function Get-PythonVersion {
     }
     catch { }
     return $null
+}
+
+# Returns the dependency file to install, relative to the checkout.
+function Select-LockFile {
+    param($Checkout)
+    $reason = "(Windows has no CUDA 13 torch build)"
+    if ($env:LOCK_FILE) {
+        if (-not (Test-Path (Join-Path $Checkout $env:LOCK_FILE))) {
+            Write-Err "LOCK_FILE=$($env:LOCK_FILE) not found in $Checkout"
+        }
+        Write-Info "torch variant: LOCK_FILE=$($env:LOCK_FILE) (auto would pick cpu $reason)"
+        if (($env:LOCK_FILE -replace '\\', '/' -replace '^\./', '') -eq $CUDA_LOCK) {
+            Write-Warn "Installing the CUDA lock although auto picks cpu $reason; torch may not use this GPU"
+        }
+        return $env:LOCK_FILE
+    }
+    Write-Info "torch variant: cpu $reason"
+    if (Test-Path (Join-Path $Checkout $CPU_LOCK)) { return $CPU_LOCK }
+    if (Test-Path (Join-Path $Checkout $CUDA_LOCK)) {
+        Write-Warn "$CPU_LOCK not found; installing $CUDA_LOCK instead"
+        return $CUDA_LOCK
+    }
+    Write-Warn "No lock file found; installing unpinned requirements.txt"
+    return "requirements.txt"
 }
 
 Write-Info "Installing Job Card Extractor..."
@@ -71,13 +102,14 @@ Write-Info "Upgrading pip..."
 & $venvPython -m pip install --upgrade pip | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Err "Failed to upgrade pip" }
 
-Write-Info "Installing Python packages..."
-$lockFile = Join-Path $checkout "requirements.lock"
-if (Test-Path $lockFile) {
+$lockName = Select-LockFile $checkout
+$lockFile = Join-Path $checkout $lockName
+Write-Info "Installing Python packages from $lockName..."
+if ($lockName -like "*.lock") {
     & $venvPython -m pip install --require-hashes -r $lockFile | Out-Null
 }
 else {
-    & $venvPython -m pip install -r (Join-Path $checkout "requirements.txt") | Out-Null
+    & $venvPython -m pip install -r $lockFile | Out-Null
 }
 if ($LASTEXITCODE -ne 0) { Write-Err "Failed to install Python dependencies" }
 
