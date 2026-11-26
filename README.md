@@ -73,7 +73,16 @@ source venv/bin/activate
 pip install --require-hashes -r requirements.lock
 ```
 
-`requirements.lock` is the hash-pinned set for Python 3.13 (`requirements.txt` lists the same packages as loose minimums). The virtual environment is always `<extractor checkout>/venv/` (including when the checkout is a MAS submodule). First run downloads EasyOCR language models (~100MB). Ensure internet connectivity.
+`requirements.lock` is the hash-pinned set for Python 3.13 (`requirements.txt` lists the same packages as loose minimums).
+
+**Which lock to use.** Both locks pin the same packages and versions; they differ only in torch:
+
+| Lock | torch | Use it on |
+|---|---|---|
+| `requirements/cpu.lock` | CPU-only (`+cpu` wheels from the PyTorch CPU index on Linux and Windows) | macOS, Windows, and Linux without a GPU that runs CUDA 13 — including the Pilot 03 machine (driver 535, Quadro P2200 at compute capability 6.1). About 1.3 GB installed on Linux x86_64. |
+| `requirements.lock` | CUDA 13 on Linux (pulls the `nvidia-*`, `cuda-*` and `triton` wheels) | Linux with NVIDIA driver >= 580 and a GPU of compute capability >= 7.5. About 5.9 GB installed on Linux x86_64. |
+
+On a CPU-only host, replace the install step above with `pip install --require-hashes -r requirements/cpu.lock`. `install.sh` makes this choice for you: it probes `nvidia-smi` on Linux and prints one line such as `torch variant: cpu (driver 535 < 580 required by CUDA 13)`. `install.ps1` always picks the CPU lock. Set `LOCK_FILE=<path>` (relative to the checkout) to force a lock, for example `LOCK_FILE=requirements.lock bash install.sh`. Forcing the CUDA lock on a host the probe rejects installs it anyway, with a warning. The MAS installer makes the same choice through `MAS_TORCH_VARIANT=auto|cpu|cuda` once MAS #379 is merged. The virtual environment is always `<extractor checkout>/venv/` (including when the checkout is a MAS submodule). First run downloads EasyOCR language models (~100MB). Ensure internet connectivity.
 
 #### 3. Verify installation
 

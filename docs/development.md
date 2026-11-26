@@ -83,10 +83,38 @@ uv pip compile pyproject.toml --universal --python-version 3.13 \
     --generate-hashes -o requirements.lock
 uv pip compile requirements-dev.in --universal --python-version 3.13 \
     --generate-hashes -c requirements.lock -o requirements-dev.lock
+rm -f requirements/cpu.lock
+uv pip compile pyproject.toml -c requirements.lock --universal \
+    --python-version 3.13 --generate-hashes \
+    --index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://pypi.org/simple \
+    --index-strategy unsafe-best-match --emit-index-url \
+    -o requirements/cpu.lock
 ```
 
+`requirements/cpu.lock` is the CPU-only variant: the same pins as
+`requirements.lock` (`-c requirements.lock`), but torch and torchvision resolve
+to the `+cpu` builds from the PyTorch CPU index on Linux and Windows, so it has
+no `nvidia-*`, `cuda-*` or `triton` packages. Three details matter:
+
+- uv gives `--extra-index-url` priority over `--index-url`. PyPI is listed as
+  the extra index so that packages the PyTorch index also mirrors (such as
+  `markupsafe`) keep PyPI's full hash set. With the PyTorch index as the extra
+  one, uv kept a single `markupsafe` hash, and the Linux install failed with
+  a hash mismatch. Torch still comes from the PyTorch index, because
+  `unsafe-best-match` prefers `2.14.0+cpu` over `2.14.0`.
+- Delete the old file first. `uv pip compile -o` treats an existing output as
+  a preference and carries its hashes over.
+- `--emit-index-url` writes both index lines into the lock, so a plain
+  `pip install --require-hashes -r requirements/cpu.lock` finds the `+cpu`
+  wheels.
+
+`tests/test_dependency_manifests.py` checks that the CPU lock has no CUDA
+packages and keeps every pin and PyPI hash of `requirements.lock`.
+
 Install with `--require-hashes` (the dev lock also with `--no-deps`, as it is
-fully resolved). The parent MAS repository installs `requirements.lock` and then
+fully resolved). The parent MAS repository installs `requirements/cpu.lock` or `requirements.lock`
+(the same torch-variant rule as `install.sh`, from MAS #379) and then
 its own hash-pinned pytest (`requirements/python-test-tools.lock`); the dev lock
 uses the same pytest version so the two never disagree. Add `--upgrade` to the
 first command only when deliberately refreshing versions.

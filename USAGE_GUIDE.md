@@ -83,6 +83,8 @@ pip install --require-hashes -r requirements.lock
 python -c "import pypdfium2; print(pypdfium2.__version__)"
 ```
 
+On a host without a CUDA 13-capable NVIDIA GPU (macOS, Windows, the Pilot 03 machine), install `requirements/cpu.lock` instead. See "Which lock to use" in the README.
+
 **First run is slow:** EasyOCR downloads its language models (~100MB+) on first
 use. Subsequent runs reuse the cached models.
 

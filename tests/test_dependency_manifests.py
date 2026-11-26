@@ -27,7 +27,7 @@ class TestDependencyManifests(unittest.TestCase):
                 self.assertIsNone(re.match(r'argparse\b', line), f'{name}: {line}')
 
     def test_lockfiles_pin_every_package_with_hashes(self):
-        for name in ('requirements.lock', 'requirements-dev.lock'):
+        for name in ('requirements.lock', 'requirements/cpu.lock', 'requirements-dev.lock'):
             text = (ROOT / name).read_text(encoding='utf-8')
             packages = re.findall(r'^([A-Za-z0-9._-]+)==', text, flags=re.MULTILINE)
             self.assertGreater(len(packages), 5, name)
@@ -37,3 +37,31 @@ class TestDependencyManifests(unittest.TestCase):
             for block in blocks:
                 self.assertIn('--hash=sha256:', block, f'{name}: {block.splitlines()[0]}')
         self.assertIn('pytest', (ROOT / 'requirements-dev.lock').read_text(encoding='utf-8'))
+
+    def test_cpu_lock_has_no_cuda_packages_and_cpu_torch_on_linux(self):
+        text = (ROOT / 'requirements/cpu.lock').read_text(encoding='utf-8')
+        packages = re.findall(r'^([A-Za-z0-9._-]+)==', text, flags=re.MULTILINE)
+        cuda = [p for p in packages if re.match(r'(nvidia-|cuda-|triton$)', p)]
+        self.assertEqual(cuda, [])
+        for name in ('torch', 'torchvision'):
+            self.assertRegex(text, rf"(?m)^{name}==[0-9.]+\+cpu ; sys_platform != 'darwin'")
+        self.assertIn('--extra-index-url https://pypi.org/simple', text)
+        self.assertIn('--index-url https://download.pytorch.org/whl/cpu', text)
+
+    def test_cpu_lock_matches_main_lock_versions_and_hashes(self):
+        # Built with -c requirements.lock: shared packages keep the same pin
+        # and every PyPI file hash (an index mirror must not narrow them).
+        def parse(name):
+            text = (ROOT / name).read_text(encoding='utf-8')
+            blocks = re.split(r'^(?=[A-Za-z0-9._-]+==)', text, flags=re.MULTILINE)[1:]
+            pins = {}
+            for block in blocks:
+                pin = block.split()[0]
+                pins[pin] = set(re.findall(r'sha256:(\w+)', block))
+            return pins
+        main, cpu = parse('requirements.lock'), parse('requirements/cpu.lock')
+        for pin, hashes in cpu.items():
+            if pin.split('==')[0] in ('torch', 'torchvision'):
+                continue
+            self.assertIn(pin, main)
+            self.assertLessEqual(main[pin], hashes, pin)
