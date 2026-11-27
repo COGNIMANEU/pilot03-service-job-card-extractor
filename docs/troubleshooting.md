@@ -59,6 +59,23 @@ pip install --no-cache-dir pypdfium2
 
 ## Processing Issues
 
+### "Illegal instruction" (SIGILL, exit code 132) during OCR
+
+**Symptoms:** extraction stops during OCR with `Illegal instruction` or `Fatal Python error: Illegal instruction`, on an x86 CPU without AVX2 (for example an Intel Xeon E5-1620). MAS reports "Job card extraction failed (exit SIGILL)".
+
+**Cause:** on CPU, EasyOCR quantizes its text recognizer by default, and torch's quantized LSTM kernel needs AVX2. Since issue #19 the extractor detects x86 CPUs without AVX2 and uses the float recognizer, which gives the same text, only slower.
+
+**Solution:**
+
+1. Check which kernel set torch sees (`DEFAULT` on x86 means no AVX2):
+   ```bash
+   venv/bin/python -c "import torch; print(torch.backends.cpu.get_cpu_capability())"
+   ```
+2. If you run an older extractor, or the detection is wrong for your machine, force the choice with `JCE_OCR_QUANTIZE=0` (float recognizer) or `JCE_OCR_QUANTIZE=1` (quantized):
+   ```bash
+   JCE_OCR_QUANTIZE=0 venv/bin/python job_card_extractor.py input.pdf -o output
+   ```
+
 ### "PDF file not found"
 
 **Symptoms:** FileNotFoundError when processing.
