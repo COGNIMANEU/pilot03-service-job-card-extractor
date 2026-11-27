@@ -12,6 +12,7 @@ into a single workflow.
 __version__ = '1.1.0'
 
 import os
+import platform
 import cv2
 import numpy as np
 import json
@@ -906,6 +907,34 @@ def _save_debug_images(output_dir, indexed_debug):
             print(f"Saved debug image: {debug_img_path}")
 
 
+_X86_MACHINES = {'x86_64', 'amd64', 'i386', 'i686', 'x86'}
+
+
+def _ocr_quantize_enabled():
+    """Whether EasyOCR may quantize its CPU recognizer (issue #19).
+
+    On CPU, EasyOCR's default ``quantize=True`` swaps the recognizer's LSTM for
+    torch's dynamic int8 LSTM, whose x86 kernel needs AVX2: on an AVX-only CPU
+    (e.g. the Pilot 03 Xeon E5-1620) it dies with SIGILL. Use the float model
+    there; it gives the same text, only slower. Apple Silicon also reports the
+    ``DEFAULT`` capability but quantizes fine, so the rule is x86-only.
+    ``JCE_OCR_QUANTIZE=0|1`` overrides the automatic choice.
+    """
+    override = os.environ.get('JCE_OCR_QUANTIZE', '').strip().lower()
+    if override in ('0', 'false', 'no', 'off'):
+        return False
+    if override in ('1', 'true', 'yes', 'on'):
+        return True
+    if platform.machine().lower() not in _X86_MACHINES:
+        return True
+    try:
+        import torch
+        capability = torch.backends.cpu.get_cpu_capability()
+    except Exception:  # an unknown torch keeps EasyOCR's default
+        return True
+    return capability != 'DEFAULT'
+
+
 def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None, parallel_processing=True, enhance_quality=True):
     """Optimized PDF extraction with optional parallel processing."""
     if lang_list is None:
@@ -921,7 +950,7 @@ def extract_areas_from_pdf(pdf_path, lang_list=None, output_dir=None, parallel_p
     print(f"Converted PDF to {len(images)} images")
 
     # Create a single OCR reader instance (reuse for better performance)
-    reader = easyocr.Reader(lang_list)
+    reader = easyocr.Reader(lang_list, quantize=_ocr_quantize_enabled())
     create_debug = output_dir is not None
 
     if parallel_processing and len(images) > 1:
